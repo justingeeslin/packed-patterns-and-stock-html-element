@@ -1,0 +1,134 @@
+<html>
+  <body>
+	<style>
+	  .layout {
+		display: grid;
+		grid-template-columns: 300px 1fr;
+		gap: 24px;
+		align-items: start;
+		max-width: 1200px;
+		margin: 24px auto;
+	  }
+
+	  .palette {
+		border: 1px solid #ccc;
+		padding: 16px;
+		border-radius: 8px;
+		display: grid;
+		gap: 12px;
+	  }
+	</style>
+
+	<div class="layout">
+	  <div class="palette">
+		<piece-quantity-control
+		  id="triangle-control"
+		  board="board"
+		  piece-kind="triangle"
+		  label="Triangle"
+		  value="0"
+		>
+		  <svg slot="preview" viewBox="0 0 100 100" width="40" height="40">
+			<polygon points="50,18 82,78 18,78" fill="none" stroke="black" data-draggable="true" role="garment"></polygon>
+		  </svg>
+
+		  <template slot="shape">
+			  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+				<g data-draggable="true">
+					<polygon points="0,0 45,80 -45,80" fill="transparent"  data-draggable="true" role="garment" stroke="black"></polygon>
+				</g>
+			  </svg>
+		  </template>
+		</piece-quantity-control>
+
+		<piece-quantity-control
+		  id="rect-control"
+		  board="board"
+		  piece-kind="rectangle"
+		  label="Rectangle"
+		  value="0"
+		>
+		  <svg slot="preview" viewBox="0 0 100 100" width="40" height="40">
+			<rect x="20" y="20" width="60" height="60" fill="transparent" stroke="black"></rect>
+		  </svg>
+
+		  <template slot="shape">
+			  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+			<g>
+			  <rect data-draggable="true" role="garment" x="0" y="0" width="90" height="60" fill="transparent" stroke="black"></rect>
+			</g>
+			  </svg>
+		  </template>
+		</piece-quantity-control>
+
+		<piece-quantity-control
+		  id="sleeve-control"
+		  board="board"
+		  piece-kind="sleeve-front"
+		  label="Sleeve Front"
+		  value="0"
+		>
+		  <svg slot="preview" viewBox="0 0 100 100" width="40" height="40">
+			<path d="M20 35 Q35 15 60 22 L75 70 Q45 85 20 60 Z"
+				  fill="none" stroke="black"></path>
+		  </svg>
+
+		  <template slot="shape">
+			  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+			<g  data-draggable="true">
+			  <polygon points="256.00,0.00 14.00,344.00 0.00,398.00 246.00,573.00 305.00,526.00" data-draggable="true" role="garment" fill="transparent" stroke="#0091EA" stroke-width="3"></polygon>
+			</g>
+			  </svg>
+		  </template>
+		</piece-quantity-control>
+	  </div>
+
+	  <pattern-pack-board id="board">
+		  <svg viewBox="0 0 1200 750" aria-label="Draggable garment parts">
+		  
+			  <rect x="0" y="0" width="1200" height="750" fill="url(#grid)"></rect>
+		  
+			  <!-- T-shirt -->
+		  		<polygon id="full" points="561.00,90.00 441.00,29.00 350.00,0.00 327.00,15.00 286.00,21.00 235.00,17.00 202.00,2.00 123.00,30.00 0.00,95.00 60.00,202.00 110.00,191.00 111.00,570.00 458.00,566.00 455.00,186.00 505.00,199.00" fill="none" stroke="#0091EA" stroke-width="3" role="stock"/>
+			  
+		  
+				<!-- <polygon id="left-sleeve" viewBox="0.00 0.00 305.00 573.00" data-draggable="true" role="garment" transform="translate(720 130)"
+				  points="256.00,0.00 14.00,344.00 0.00,398.00 246.00,573.00 305.00,526.00"
+				  fill="transparent"
+				  pointer-events="all"
+				  stroke="#0091EA"
+				  stroke-width="3"/>
+		  
+				<polygon data-draggable="true" role="garment" transform="translate(780 420)"
+				  points="0.00,504.00 60.00,533.00 317.00,394.00 87.00,0.00"
+				  fill="transparent"
+				  pointer-events="all"
+				  stroke="#0091EA"
+				  stroke-width="3"/> -->
+			</svg>
+	  </pattern-pack-board>
+	</div>
+
+	<script type="module">
+	  import "./src/PatternPackBoard.js";
+	  import "./src/PieceQuantityControl.js";
+
+	  // const SVG_NS = "http://www.w3.org/2000/svg";
+	  // const board = document.getElementById("board");
+// 
+	  // const stockRect = document.createElementNS(SVG_NS, "rect");
+	  // stockRect.setAttribute("x", "20");
+	  // stockRect.setAttribute("y", "20");
+	  // stockRect.setAttribute("width", "900");
+	  // stockRect.setAttribute("height", "700");
+	  // stockRect.setAttribute("fill", "none");
+	  // stockRect.setAttribute("stroke", "#444");
+// 
+	  // board.appendChild(stockRect);
+
+	  // board.addEventListener("sync-error", (event) => {
+		// console.error("SVG sync failed", event.detail.error);
+	  // });
+	</script>
+  </body>
+</html>

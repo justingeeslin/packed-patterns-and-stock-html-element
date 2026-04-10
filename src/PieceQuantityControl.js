@@ -10,6 +10,8 @@ export class PieceQuantityControl extends HTMLElement {
 	super();
 	this.attachShadow({ mode: "open" });
 	this._localCounter = 0;
+	
+	this.boardSvgElement;
 
 	this.shadowRoot.innerHTML = `
 	  <style>
@@ -51,6 +53,8 @@ export class PieceQuantityControl extends HTMLElement {
 
   connectedCallback() {
 	this._render();
+	console.log('Setting the board SVG element ', this.boardId)
+	this.boardSvgElement = document.querySelector('#' + this.boardId)
 	this.qtyInput.addEventListener("input", this._onInput);
   }
 
@@ -69,17 +73,9 @@ export class PieceQuantityControl extends HTMLElement {
   get labelEl() {
 	return this.shadowRoot.querySelector(".label");
   }
-  
-  get board() {
-	  return document.getElementById(this.boardId)
-  }
 
   get boardId() {
 	return this.getAttribute("board");
-  }
-
-  get boardElement() {
-	return this.boardId ? document.getElementById(this.boardId) : null;
   }
 
   get pieceKind() {
@@ -118,16 +114,14 @@ export class PieceQuantityControl extends HTMLElement {
   }
 
   _reconcileQuantity(desiredCount) {
-	  console.log("Heres the board..", this.board)
-  	const boardSvgElement = this.board.querySelector('svg')
-	const currentNodes = this._getOwnedNodes(boardSvgElement);
+	const currentNodes = this._getOwnedNodes(this.boardSvgElement);
 	const currentCount = currentNodes.length;
 	const delta = desiredCount - currentCount;
 
 	if (delta > 0) {
 	  for (let i = 0; i < delta; i += 1) {
 		const node = this._createOwnedNode(currentCount + i);
-		boardSvgElement.appendChild(node);
+		this.boardSvgElement.appendChild(node);
 	  }
 	} else if (delta < 0) {
 	  currentNodes.slice(delta).forEach((node) => node.remove());
@@ -135,7 +129,7 @@ export class PieceQuantityControl extends HTMLElement {
   }
 
   _getOwnedNodes(board) {
-	return Array.from(this.board.querySelectorAll((
+	return Array.from(this.boardSvgElement.querySelectorAll((
 	  `[data-owner-control="${CSS.escape(this.ownerId)}"][data-piece-kind="${CSS.escape(this.pieceKind)}"]`
 	)));
   }

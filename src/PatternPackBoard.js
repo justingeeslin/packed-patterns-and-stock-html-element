@@ -1,6 +1,6 @@
 // src/PatternPackBoard.js
 
-import DraggableSvgBoard from "../node_modules/draggable-svg-html-element/src/DraggableSvgBoard.js";
+import DraggableSvgBoard from "/node_modules/draggable-svg-html-element/src/DraggableSvgBoard.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 

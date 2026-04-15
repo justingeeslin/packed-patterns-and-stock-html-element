@@ -18,6 +18,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	
 	this.endpoint = "https://secure-refuge-29958-07dfc33a91ee.herokuapp.com/proxy/"
 	
+	// Grid-like layout options
+	this.gap = 50;
+	this.rightmostX = 0;
+	
 	
 	this.shadowRoot.innerHTML = `
 	  <style>
@@ -54,42 +58,124 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 	});
   }
+  
+  	/**
+	* Measure all existing polygons and find the current rightmost occupied x.
+	*/
+	_initializeRightmostX() {
+		const polygons = Array.from(this.svg.querySelectorAll('polygon[role="stock"]'));
+		
+		if (polygons.length === 0) {
+			this.rightmostX = 0;
+			return;
+		}
+		
+		this.rightmostX = polygons.reduce((max, polygon) => {
+			const box = polygon.getBBox();
+			return Math.max(max, box.x + box.width);
+		}, 0);
+	}
+	
+	/**
+	* Handle newly added nodes.
+	* Supports direct polygon nodes and containers that may contain polygons.
+	*
+	* @param {Node} node
+	*/
+	_handleAddedNode(node) {
+		if (!(node instanceof Element)) return;
+		
+		if (node.tagName?.toLowerCase() === "polygon" &&
+		node.getAttribute("role") === "stock") {
+			this._placePolygon(node);
+			return;
+		}
+		
+		const polygons = node.querySelectorAll?.('polygon[role="stock"]');
+		if (polygons && polygons.length > 0) {
+			for (const polygon of polygons) {
+				this._placePolygon(polygon);
+			}
+		}
+	}
+	
+	/**
+	* Move a polygon so its left edge starts at the current rightmost x.
+	* Then update rightmostX.
+	*
+	* @param {SVGPolygonElement} polygon
+	*/
+	_placePolygon(polygon) {
+		console.log("Updating polygon..", polygon)
+		console.log("Current rightmost x (starting point)", this.rightmostX)
+		// Measure current box before translation.
+		const box = polygon.getBBox();
+		
+		// Shift so the polygon's left edge lines up at rightmostX + gap.
+		const targetX = this.rightmostX + this.gap;
+		const dx = targetX - box.x;
+		
+		// Keep current y position unchanged.
+		const dy = 0;
+		
+		// Replace any previous transform with this translate.
+		polygon.setAttribute("transform", `translate(${dx}, ${dy})`);
+		
+		// Re-measure after moving so rightmostX is accurate.
+		const newBox = polygon.getBBox();
+		const shapeFurthestExtent = targetX + newBox.width
+		console.log("Shape go this far", shapeFurthestExtent)
+		const newRightmostX = Math.max(this.rightmostX, shapeFurthestExtent)
+		console.log("Updating rightmostX", newRightmostX)
+		this.rightmostX = newRightmostX;
+	}
+	
+	connectedCallback() {
+		console.log("PatternPackBoard Connected")
+		super.connectedCallback?.();
+		
+		if (this._isConnected) return;
+		this._isConnected = true;
+		
+		this._initializeRightmostX()
+		
+		this._observer = new MutationObserver((records) => {
+			console.log("[PPB] Mutation seen!")
+			for (const mutation of records) {
+				for (const node of mutation.addedNodes) {
+					this._handleAddedNode(node);
+				}
+			}
+			
+			if (this._shouldSync(records)) {
+				this._scheduleSync();
+			}
+		});
 
-  connectedCallback() {
-  	super.connectedCallback?.();
-	  
-	if (this._isConnected) return;
-	this._isConnected = true;
-	this._observer = new MutationObserver((records) => {
-	  if (this._shouldSync(records)) {
+		this._observer.observe(this, {
+		childList: true,
+		subtree: true,
+		attributes: true,
+		attributeFilter: [
+			"d",
+			"points",
+			"transform",
+			"x",
+			"y",
+			"width",
+			"height",
+			"cx",
+			"cy",
+			"r",
+			"role",
+			"data-owner-control",
+			"data-piece-kind",
+			"data-instance-id"
+		]
+		});
+	
 		this._scheduleSync();
-	  }
-	});
-
-	// this._observer.observe(this, {
-	//   childList: true,
-	//   subtree: true,
-	//   attributes: true,
-	//   attributeFilter: [
-	// 	"d",
-	// 	"points",
-	// 	"transform",
-	// 	"x",
-	// 	"y",
-	// 	"width",
-	// 	"height",
-	// 	"cx",
-	// 	"cy",
-	// 	"r",
-	// 	"role",
-	// 	"data-owner-control",
-	// 	"data-piece-kind",
-	// 	"data-instance-id"
-	//   ]
-	// });
-
-	this._scheduleSync();
-  }
+	}
 
   disconnectedCallback() {
 	this._isConnected = false;
@@ -127,7 +213,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	))
 	
 	console.log("Garment SVGS", garmentSvgs)
-	// console.log("Stock SVGS", stockSvgs[0])
+	console.log("Stock SVGS", stockSvgs)
 	
 	var payload = {
 		"id":"packboard",

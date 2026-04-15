@@ -274,6 +274,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(svgResult, "image/svg+xml");
 	const svgElement = doc.documentElement;
+	svgElement.setAttribute("id", "board")
 	
 	const garment_pieces = svgElement.querySelectorAll("path, polygon");
 	

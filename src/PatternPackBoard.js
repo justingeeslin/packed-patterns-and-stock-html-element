@@ -238,6 +238,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	if (!this.endpoint) return null;
 
 	this.progressEl.classList.remove("hidden");
+	
+	// Disable the mutation observer - to be reconnected upon calling connectedCalback
+	this._observer.disconnect();
+	this._observer = null;
 
 	const response = await fetch(this.endpoint, {
 	  method: "POST",

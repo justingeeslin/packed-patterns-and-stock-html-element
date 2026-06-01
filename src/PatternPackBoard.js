@@ -59,21 +59,25 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	});
   }
   
-  	/**
+	  /**
 	* Measure all existing polygons and find the current rightmost occupied x.
 	*/
 	_initializeRightmostX() {
-		const polygons = Array.from(this.svg.querySelectorAll('polygon[role="stock"]'));
-		
+		const polygons = Array.from(this.svg.querySelectorAll('[role="stock"]'));
+		console.log('These stock polygons', polygons)
 		if (polygons.length === 0) {
 			this.rightmostX = 0;
 			return;
 		}
-		
-		this.rightmostX = polygons.reduce((max, polygon) => {
+		var rightmostX = 0;
+		polygons.reduce((max, polygon) => {
 			const box = polygon.getBBox();
-			return Math.max(max, box.x + box.width);
+			rightmostX += Math.max(max, box.x + box.width)
+			console.log('Rightmost X is now', rightmostX)
+			return rightmostX;
 		}, 0);
+		this.rightmostX += rightmostX
+		
 	}
 	
 	/**
@@ -147,9 +151,9 @@ export class PatternPackBoard extends DraggableSvgBoard {
 				}
 			}
 			
-			if (this._shouldSync(records)) {
-				this._scheduleSync();
-			}
+			// if (this._shouldSync(records)) {
+			// 	this._scheduleSync();
+			// }
 		});
 
 		this._observer.observe(this, {
@@ -270,21 +274,66 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	// Debug
 	window.pack_output = data.output
 	
-	const svgResult = data.output.garment_marker;
+	var svgResult = data.output.garment_marker;
+	
+	if (!svgResult.includes('xmlns=')) {
+	  svgResult = svgResult.replace(
+		"<svg",
+		'<svg xmlns="http://www.w3.org/2000/svg"'
+	  );
+	}
+	
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(svgResult, "image/svg+xml");
-	const svgElement = doc.documentElement;
+	
+	const parserError = doc.querySelector("parsererror");
+	
+	if (parserError) {
+	
+	  console.error("SVG parse error:", parserError.textContent);
+	
+	  console.log("Raw SVG result:", svgResult);
+	
+	  return;
+	
+	}
+	else {
+		console.log('No errors parsing the SVG..')
+	}
+	
+	const parsedSvg = doc.documentElement;
+
+	// Import into the current HTML document
+	const svgElement = document.importNode(parsedSvg, true);
 	svgElement.setAttribute("id", "board")
 	
 	const garment_pieces = svgElement.querySelectorAll("path, polygon");
 	
-	garment_pieces.forEach(el => {
-	  el.dataset.draggable = "true";
-	  el.setAttribute("pointer-events", "all");
-	});
+	// garment_pieces.forEach(el => {
+	// 	console.log('Setting draggable to true..', el, el.dataset)
+	//   el.dataset.draggable = "true";
+	//   el.setAttribute("pointer-events", "all");
+	// });
 
+	// console.log('About to replace: But first this', this)
+	console.log('About to replace', this.querySelector("svg"), svgElement)
 	// And the draggable wrapper to the packboard
 	this.querySelector("svg").replaceWith(svgElement);
+	
+	// console.log("Appending SVG element to the body")
+	// // console.log(svgElement instanceof SVGElement);
+	// // console.log(svgElement instanceof HTMLElement);
+	// 
+	// console.log("SVGElement constructor name", svgElement.constructor.name);
+	// 
+	// console.log(svgElement instanceof SVGSVGElement);
+	// 
+	// console.log(svgElement.namespaceURI);
+	// 
+	// 
+	// 
+	// document.body.appendChild(svgElement);
+	// this.appendChild(svgElement)
 	
 	super.connectedCallback?.();
 

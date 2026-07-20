@@ -20,9 +20,7 @@ export class PieceQuantityControl extends HTMLElement {
 		}
 
 		.control {
-		  display: inline-flex;
-		  align-items: center;
-		  gap: 10px;
+		  
 		}
 		
 				

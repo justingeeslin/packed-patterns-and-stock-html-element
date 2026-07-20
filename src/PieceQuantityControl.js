@@ -16,7 +16,6 @@ export class PieceQuantityControl extends HTMLElement {
 	this.shadowRoot.innerHTML = `
 	  <style>
 		:host {
-		  display: block;
 		  font-family: sans-serif;
 		}
 
@@ -24,6 +23,11 @@ export class PieceQuantityControl extends HTMLElement {
 		  display: inline-flex;
 		  align-items: center;
 		  gap: 10px;
+		}
+		
+				
+		.preview {
+			display:block;
 		}
 
 		.label {
@@ -43,7 +47,7 @@ export class PieceQuantityControl extends HTMLElement {
 
 	  <div class="control">
 		<slot name="preview"></slot>
-		<span class="label"></span>
+		<div class="label"></div>
 		<input class="qty" type="number" min="0" step="1" value="0">
 	  </div>
 

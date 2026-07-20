@@ -20,7 +20,9 @@ export class PieceQuantityControl extends HTMLElement {
 		}
 
 		.control {
-		  
+		  border: 3px solid white;
+		  border-radius: 8px;
+		  padding: 1em;
 		}
 		
 				

@@ -10,9 +10,18 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "draggable-svg-html-element": "github:justingeeslin/draggable-svg-html-element"
+  },
+  "devDependencies": {
+    "@vitest/browser-playwright": "^4.1.10",
+    "@vitest/coverage-istanbul": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.10",
+    "playwright": "^1.61.1",
+    "vitest": "^4.1.10"
   }
 }

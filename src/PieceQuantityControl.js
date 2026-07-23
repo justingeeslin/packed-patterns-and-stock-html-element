@@ -168,7 +168,6 @@ _createOwnedNode(index) {
 	  );
 	}
   
-	root.setAttribute("data-role", "garment");
 	root.setAttribute("data-owner-control", this.ownerId);
 	root.setAttribute("data-piece-kind", this.pieceKind);
 	root.setAttribute("data-instance-id", `${this.ownerId}-${this._localCounter++}`);

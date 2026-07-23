@@ -172,7 +172,7 @@ _createOwnedNode(index) {
 	root.setAttribute("data-piece-kind", this.pieceKind);
 	root.setAttribute("data-instance-id", `${this.ownerId}-${this._localCounter++}`);
   
-	this._positionNode(root, index);
+	// this._positionNode(root, index);
   
 	return root;
   }

@@ -314,15 +314,16 @@ export class UploadablePalette extends HTMLElement {
   _createPreviewSvg(uploadedSvg) {
     const previewSvg = uploadedSvg.cloneNode(true);
     previewSvg.setAttribute("slot", "preview");
+
+    if (!previewSvg.hasAttribute("viewBox")) {
+      previewSvg.setAttribute("viewBox", this._viewBoxFromSize(previewSvg));
+    }
+
     previewSvg.setAttribute("width", "48");
     previewSvg.setAttribute("height", "48");
     previewSvg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     previewSvg.setAttribute("aria-hidden", "true");
     previewSvg.removeAttribute("id");
-
-    if (!previewSvg.hasAttribute("viewBox")) {
-      previewSvg.setAttribute("viewBox", this._viewBoxFromSize(previewSvg));
-    }
 
     return previewSvg;
   }

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import "../src/UploadablePalette.js";
 
@@ -11,6 +11,18 @@ const SIMPLE_SVG = `
   <svg xmlns="${SVG_NS}" viewBox="0 0 60 40">
     <path id="front-path" d="M 5 5 L 55 5 L 45 35 L 15 35 Z" fill="none"></path>
     <circle id="notch" cx="30" cy="10" r="4"></circle>
+  </svg>
+`;
+
+const SIZED_SVG_WITHOUT_VIEWBOX = `
+  <svg xmlns="${SVG_NS}" width="72" height="36">
+    <path d="M 0 0 L 72 0 L 72 36 L 0 36 Z"></path>
+  </svg>
+`;
+
+const SIZELESS_SVG_WITHOUT_VIEWBOX = `
+  <svg xmlns="${SVG_NS}">
+    <path d="M 0 0 L 20 0 L 20 20 L 0 20 Z"></path>
   </svg>
 `;
 
@@ -53,9 +65,16 @@ function waitForUploadEvents(palette, count) {
   });
 }
 
-async function uploadFiles(palette, files) {
+function waitForEvent(target, eventName) {
+  return new Promise((resolve) => {
+    target.addEventListener(eventName, resolve, {
+      once: true,
+    });
+  });
+}
+
+function dispatchFiles(palette, files) {
   const input = palette.shadowRoot.querySelector("#svgPieceUpload");
-  const uploads = waitForUploadEvents(palette, files.length);
 
   Object.defineProperty(input, "files", {
     value: files,
@@ -67,6 +86,13 @@ async function uploadFiles(palette, files) {
       bubbles: true,
     }),
   );
+
+  return input;
+}
+
+async function uploadFiles(palette, files) {
+  const uploads = waitForUploadEvents(palette, files.length);
+  dispatchFiles(palette, files);
 
   return uploads;
 }
@@ -105,6 +131,21 @@ describe("UploadablePalette", () => {
     expect(input.multiple).toBe(true);
   });
 
+  test("uses board as the default target board id", () => {
+    const container = document.createElement("div");
+    container.innerHTML = "<uploadable-palette></uploadable-palette>";
+    document.body.appendChild(container);
+
+    const palette = container.querySelector("uploadable-palette");
+    const controls = Array.from(
+      palette.shadowRoot.querySelectorAll("piece-quantity-control"),
+    );
+
+    expect(palette.boardId).toBe("board");
+    expect(controls.every((control) => control.getAttribute("board") === "board"))
+      .toBe(true);
+  });
+
   test("adds an uploaded SVG as a piece quantity control", async () => {
     const { palette } = createFixture();
 
@@ -118,6 +159,26 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.getAttribute("value")).toBe("0");
     expect(palette.shadowRoot.getElementById(control.id)).toBe(control);
+  });
+
+  test("retargets existing and uploaded controls when the board attribute changes", async () => {
+    const { palette } = createFixture();
+
+    palette.setAttribute("board", "alternate-board");
+
+    const defaultControls = Array.from(
+      palette.shadowRoot.querySelectorAll("piece-quantity-control"),
+    );
+
+    expect(
+      defaultControls.every(
+        (control) => control.getAttribute("board") === "alternate-board",
+      ),
+    ).toBe(true);
+
+    const [event] = await uploadFiles(palette, [createSvgFile()]);
+
+    expect(event.detail.control.getAttribute("board")).toBe("alternate-board");
   });
 
   test("creates a miniaturized preview SVG from the uploaded SVG", async () => {
@@ -161,6 +222,189 @@ describe("UploadablePalette", () => {
       "uploaded-front-bodice-0-control",
       "uploaded-front-bodice-1-control",
     ]);
+  });
+
+  test("skips existing generated IDs when creating uploaded controls", () => {
+    const { palette } = createFixture();
+    const blocker = document.createElement("div");
+    blocker.id = "uploaded-front-bodice-0-control";
+    palette.shadowRoot.appendChild(blocker);
+
+    const control = palette.addSvgControl(SIMPLE_SVG, "front-bodice.svg");
+
+    expect(control.id).toBe("uploaded-front-bodice-1-control");
+  });
+
+  test("falls back to a generic label and slug for blank SVG filenames", () => {
+    const { palette } = createFixture();
+
+    const control = palette.addSvgControl(SIMPLE_SVG, ".svg");
+
+    expect(control.getAttribute("label")).toBe("Uploaded SVG");
+    expect(control.id).toBe("uploaded-uploaded-svg-0-0-control");
+  });
+
+  test("derives preview and template viewBox values from SVG width and height", () => {
+    const { palette } = createFixture();
+
+    const control = palette.addSvgControl(
+      SIZED_SVG_WITHOUT_VIEWBOX,
+      "sized-piece.svg",
+    );
+
+    const preview = control.querySelector('svg[slot="preview"]');
+    const templateSvg = control.querySelector("template").content.querySelector("svg");
+
+    expect(preview.getAttribute("viewBox")).toBe("0 0 72 36");
+    expect(templateSvg.getAttribute("viewBox")).toBe("0 0 72 36");
+  });
+
+  test("uses a default viewBox when uploaded SVG dimensions are missing", () => {
+    const { palette } = createFixture();
+
+    const control = palette.addSvgControl(
+      SIZELESS_SVG_WITHOUT_VIEWBOX,
+      "sizeless-piece.svg",
+    );
+
+    const preview = control.querySelector('svg[slot="preview"]');
+    const templateSvg = control.querySelector("template").content.querySelector("svg");
+
+    expect(preview.getAttribute("viewBox")).toBe("0 0 100 100");
+    expect(templateSvg.getAttribute("viewBox")).toBe("0 0 100 100");
+  });
+
+  test("removes active SVG content from uploaded previews and templates", () => {
+    const { palette } = createFixture();
+    const unsafeSvg = `
+      <svg xmlns="${SVG_NS}" viewBox="0 0 20 20" onclick="alert('root')">
+        <script>alert("bad")</script>
+        <foreignObject><div>html</div></foreignObject>
+        <path id="safe-path" onclick="alert('path')" d="M0 0 L20 20"></path>
+      </svg>
+    `;
+
+    const control = palette.addSvgControl(unsafeSvg, "unsafe-piece.svg");
+    const preview = control.querySelector('svg[slot="preview"]');
+    const templateSvg = control.querySelector("template").content.querySelector("svg");
+
+    expect(preview.querySelector("script")).toBeNull();
+    expect(preview.querySelector("foreignObject")).toBeNull();
+    expect(preview.hasAttribute("onclick")).toBe(false);
+    expect(preview.querySelector("#safe-path").hasAttribute("onclick")).toBe(false);
+    expect(templateSvg.querySelector("script")).toBeNull();
+    expect(templateSvg.querySelector("foreignObject")).toBeNull();
+    expect(templateSvg.querySelector("#safe-path").hasAttribute("onclick")).toBe(
+      false,
+    );
+  });
+
+  test("does nothing when the file input has no selected files", async () => {
+    const { palette } = createFixture();
+    const addSvgControl = vi.spyOn(palette, "addSvgControl");
+    let uploaded = false;
+
+    palette.addEventListener("svg-uploaded", () => {
+      uploaded = true;
+    });
+
+    dispatchFiles(palette, []);
+    await nextFrame();
+
+    expect(addSvgControl).not.toHaveBeenCalled();
+    expect(uploaded).toBe(false);
+    expect(palette.statusEl.textContent).toBe("");
+  });
+
+  test("reports invalid SVG uploads without adding a control", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const initialControls = palette.shadowRoot.querySelectorAll(
+      "piece-quantity-control",
+    ).length;
+
+    const input = dispatchFiles(palette, [
+      createSvgFile("<not-svg></not-svg>", "bad.svg"),
+    ]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures).toHaveLength(1);
+    expect(event.detail.failures[0].file.name).toBe("bad.svg");
+    expect(palette.statusEl.textContent).toBe("1 SVG could not be uploaded.");
+    expect(palette.statusEl.classList.contains("error")).toBe(true);
+    expect(input.value).toBe("");
+    expect(
+      palette.shadowRoot.querySelectorAll("piece-quantity-control"),
+    ).toHaveLength(initialControls);
+  });
+
+  test("throws for malformed SVG documents", () => {
+    const { palette } = createFixture();
+
+    expect(() => palette._parseSvg("<svg><path></svg>")).toThrow(
+      "Uploaded file must contain a valid SVG root.",
+    );
+  });
+
+  test("can read uploaded text through the FileReader fallback", async () => {
+    const { palette } = createFixture();
+    const blob = new Blob([SIMPLE_SVG], {
+      type: "image/svg+xml",
+    });
+
+    Object.defineProperty(blob, "text", {
+      value: undefined,
+    });
+
+    await expect(palette._readFileText(blob)).resolves.toBe(SIMPLE_SVG);
+  });
+
+  test("rejects when the FileReader fallback fails", async () => {
+    const { palette } = createFixture();
+    const OriginalFileReader = window.FileReader;
+    const readError = new Error("reader failed");
+
+    class FailingFileReader extends EventTarget {
+      constructor() {
+        super();
+        this.error = readError;
+      }
+
+      readAsText() {
+        this.dispatchEvent(new Event("error"));
+      }
+    }
+
+    window.FileReader = FailingFileReader;
+
+    try {
+      await expect(palette._readFileText({})).rejects.toBe(readError);
+    } finally {
+      window.FileReader = OriginalFileReader;
+    }
+  });
+
+  test("removes the upload listener when disconnected", async () => {
+    const { palette } = createFixture();
+    const input = palette.fileInput;
+    const addSvgControl = vi.spyOn(palette, "addSvgControl");
+
+    palette.remove();
+
+    Object.defineProperty(input, "files", {
+      value: [createSvgFile()],
+      configurable: true,
+    });
+
+    input.dispatchEvent(
+      new Event("change", {
+        bubbles: true,
+      }),
+    );
+
+    await nextFrame();
+
+    expect(addSvgControl).not.toHaveBeenCalled();
   });
 
   test("uploaded controls can add their SVG content to the board", async () => {

@@ -1,6 +1,8 @@
 import "./PieceQuantityControl.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const SVG_MIME_TYPE = "image/svg+xml";
+const DEFAULT_PHOTO_UPLOAD_ENDPOINT = "../upload.php";
 
 const DEFAULT_CONTROLS = `
   <piece-quantity-control
@@ -156,8 +158,8 @@ export class UploadablePalette extends HTMLElement {
         <div class="header">
           <h1>Patterns</h1>
           <form class="upload-form">
-            <input type="file" id="svgPieceUpload" accept=".svg,image/svg+xml" multiple hidden>
-            <label class="upload-button" for="svgPieceUpload">Add SVG</label>
+            <input type="file" id="svgPieceUpload" accept=".svg,image/svg+xml,image/*" multiple hidden>
+            <label class="upload-button" for="svgPieceUpload">Add / Upload</label>
           </form>
         </div>
         <p class="status" role="status" aria-live="polite"></p>
@@ -197,18 +199,23 @@ export class UploadablePalette extends HTMLElement {
     return this.shadowRoot.querySelector(".status");
   }
 
+  get photoUploadEndpoint() {
+    return this.getAttribute("photo-upload-endpoint") || DEFAULT_PHOTO_UPLOAD_ENDPOINT;
+  }
+
   _onFileInputChange = async (event) => {
     const input = event.currentTarget;
     const files = Array.from(input.files || []);
     if (files.length === 0) return;
 
-    this._setStatus(`Uploading ${files.length} SVG${files.length === 1 ? "" : "s"}...`);
+    const fileLabel = this._statusFileLabel(files);
+    this._setStatus(`Uploading ${files.length} ${fileLabel}${files.length === 1 ? "" : "s"}...`);
 
     const failures = [];
 
     for (const file of files) {
       try {
-        const svgText = await this._readFileText(file);
+        const svgText = await this._getSvgTextForFile(file);
         this.addSvgControl(svgText, file.name);
       } catch (error) {
         failures.push({ file, error });
@@ -219,7 +226,7 @@ export class UploadablePalette extends HTMLElement {
 
     if (failures.length > 0) {
       this._setStatus(
-        `${failures.length} SVG${failures.length === 1 ? "" : "s"} could not be uploaded.`,
+        `${failures.length} ${fileLabel}${failures.length === 1 ? "" : "s"} could not be uploaded.`,
         true,
       );
       this.dispatchEvent(
@@ -270,6 +277,14 @@ export class UploadablePalette extends HTMLElement {
     return control;
   }
 
+  async _getSvgTextForFile(file) {
+    if (this._isSvgFile(file)) {
+      return this._readFileText(file);
+    }
+
+    return this._convertPhotoToContourSvg(file);
+  }
+
   _readFileText(file) {
     if (typeof file.text === "function") {
       return file.text();
@@ -281,6 +296,74 @@ export class UploadablePalette extends HTMLElement {
       reader.addEventListener("error", () => reject(reader.error));
       reader.readAsText(file);
     });
+  }
+
+  async _convertPhotoToContourSvg(file) {
+    const formData = new FormData();
+    formData.append("photos[]", file);
+
+    const uploadResult = await this._fetchJson(
+      this.photoUploadEndpoint,
+      {
+        method: "POST",
+        body: formData,
+      },
+      "Upload failed.",
+    );
+
+    if (!uploadResult.files || uploadResult.files.length === 0) {
+      throw new Error("No files were returned.");
+    }
+
+    const uploadedFile = uploadResult.files[0];
+
+    if (uploadedFile.status !== "success") {
+      const originalName = uploadedFile.original_name || file.name || "file";
+      throw new Error(
+        `Error uploading ${originalName}: ${uploadedFile.message || "Upload failed."}`,
+      );
+    }
+
+    if (!uploadedFile.measure_url) {
+      throw new Error("Upload response did not include a measure URL.");
+    }
+
+    const measureResult = await this._fetchJson(
+      uploadedFile.measure_url,
+      undefined,
+      "Measure request failed.",
+    );
+
+    const svgText = Array.isArray(measureResult.svg)
+      ? measureResult.svg[0]
+      : measureResult.svg;
+
+    if (typeof svgText !== "string" || svgText.trim() === "") {
+      throw new Error("Measure response did not include an SVG.");
+    }
+
+    return svgText;
+  }
+
+  async _fetchJson(url, options, fallbackMessage) {
+    const response = await fetch(url, options);
+    let result = null;
+
+    try {
+      result = await response.json();
+    } catch (error) {
+      throw new Error(fallbackMessage);
+    }
+
+    if (!response.ok) {
+      throw new Error(result?.error || fallbackMessage);
+    }
+
+    return result;
+  }
+
+  _isSvgFile(file) {
+    return file.type === SVG_MIME_TYPE || /\.svg$/i.test(file.name || "");
   }
 
   _parseSvg(svgText) {
@@ -365,7 +448,7 @@ export class UploadablePalette extends HTMLElement {
       .replace(/\\/g, "/")
       .split("/")
       .pop()
-      .replace(/\.svg$/i, "");
+      .replace(/\.[^.]+$/i, "");
   }
 
   _humanizeName(name) {
@@ -394,7 +477,7 @@ export class UploadablePalette extends HTMLElement {
   _slugify(value) {
     return String(value)
       .toLowerCase()
-      .replace(/\.svg$/i, "")
+      .replace(/\.[^.]+$/i, "")
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
   }
@@ -408,6 +491,10 @@ export class UploadablePalette extends HTMLElement {
   _setStatus(message, isError = false) {
     this.statusEl.textContent = message;
     this.statusEl.classList.toggle("error", isError);
+  }
+
+  _statusFileLabel(files) {
+    return files.every((file) => this._isSvgFile(file)) ? "SVG" : "file";
   }
 }
 

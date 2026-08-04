@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Two Uploadable Palettes</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page-bg: #f7f8fa;
+        --surface: #ffffff;
+        --surface-muted: #eef2f6;
+        --text: #18202a;
+        --text-muted: #5b6673;
+        --border: #cfd8e3;
+        --board-bg: #fbfcfe;
+        --grid-minor: #dce4ee;
+        --grid-major: #b8c6d6;
+        --stock-stroke: #1b1f24;
+        --garment-stroke: #0077cc;
+        --focus: #0077cc;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page-bg: #101216;
+          --surface: #181c22;
+          --surface-muted: #202632;
+          --text: #eef2f7;
+          --text-muted: #a7b0bd;
+          --border: #323b48;
+          --board-bg: #12161d;
+          --grid-minor: #242d39;
+          --grid-major: #3b4656;
+          --stock-stroke: #f5f7fa;
+          --garment-stroke: #55b7ff;
+          --focus: #55b7ff;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--page-bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+        gap: 20px;
+        width: min(1400px, calc(100vw - 32px));
+        margin: 16px auto;
+        align-items: start;
+      }
+
+      .palette-stack,
+      .board-panel {
+        display: grid;
+        gap: 16px;
+      }
+
+      .palette-panel,
+      .board-panel {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .palette-panel {
+        padding: 16px;
+      }
+
+      .palette-title,
+      .board-title {
+        margin: 0 0 12px;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .board-panel {
+        padding: 16px;
+        min-width: 0;
+      }
+
+      uploadable-palette,
+      pattern-pack-board,
+      piece-quantity-control {
+        color: var(--text);
+        color-scheme: light dark;
+      }
+
+      pattern-pack-board svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: calc(100vh - 110px);
+        overflow: visible;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--board-bg);
+      }
+
+      pattern-pack-board .board-background {
+        fill: var(--board-bg);
+      }
+
+      pattern-pack-board .grid-minor {
+        stroke: var(--grid-minor);
+        stroke-width: 1;
+      }
+
+      pattern-pack-board .grid-major {
+        stroke: var(--grid-major);
+        stroke-width: 2;
+      }
+
+      pattern-pack-board [role="stock"] {
+        fill: transparent;
+        stroke: var(--stock-stroke);
+        stroke-width: 3;
+      }
+
+      pattern-pack-board [role="garment"],
+      pattern-pack-board [role="garment"] * {
+        fill: transparent;
+        stroke: var(--garment-stroke);
+      }
+
+      pattern-pack-board :focus-visible,
+      uploadable-palette :focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 3px;
+      }
+
+      @media (max-width: 860px) {
+        main {
+          grid-template-columns: 1fr;
+          width: min(100% - 24px, 720px);
+          margin: 12px auto;
+        }
+
+        pattern-pack-board svg {
+          max-height: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="palette-stack" aria-label="Pattern palettes">
+        <div class="palette-panel">
+          <h2 class="palette-title">Palette A</h2>
+          <uploadable-palette id="palette-a" board="board"></uploadable-palette>
+        </div>
+
+        <div class="palette-panel">
+          <h2 class="palette-title">Palette B</h2>
+          <uploadable-palette id="palette-b" board="board"></uploadable-palette>
+        </div>
+      </section>
+
+      <section class="board-panel" aria-labelledby="board-title">
+        <h2 class="board-title" id="board-title">Packboard</h2>
+        <pattern-pack-board>
+          <svg
+            id="board"
+            viewBox="0 0 1200 750"
+            aria-label="Draggable garment parts"
+            style="touch-action: none;"
+          >
+            <defs>
+              <pattern id="minor-grid" width="25" height="25" patternUnits="userSpaceOnUse">
+                <path class="grid-minor" d="M 25 0 H 0 V 25" fill="none"></path>
+              </pattern>
+              <pattern id="major-grid" width="100" height="100" patternUnits="userSpaceOnUse">
+                <rect width="100" height="100" fill="url(#minor-grid)"></rect>
+                <path class="grid-major" d="M 100 0 H 0 V 100" fill="none"></path>
+              </pattern>
+            </defs>
+
+            <rect class="board-background" x="0" y="0" width="1200" height="750"></rect>
+            <rect x="0" y="0" width="1200" height="750" fill="url(#major-grid)"></rect>
+
+            <polygon
+              id="stock-shirt"
+              role="stock"
+              points="561.00,90.00 441.00,29.00 350.00,0.00 327.00,15.00 286.00,21.00 235.00,17.00 202.00,2.00 123.00,30.00 0.00,95.00 60.00,202.00 110.00,191.00 111.00,570.00 458.00,566.00 455.00,186.00 505.00,199.00"
+              transform="translate(68 74)"
+            ></polygon>
+          </svg>
+        </pattern-pack-board>
+      </section>
+    </main>
+
+    <script type="module">
+      import "./src/UploadablePalette.js";
+      import "./src/PatternPackBoard.js";
+
+      const palettes = [
+        { element: document.getElementById("palette-a"), prefix: "palette-a" },
+        { element: document.getElementById("palette-b"), prefix: "palette-b" },
+      ];
+
+      for (const palette of palettes) {
+        namespaceExistingControls(palette.element, palette.prefix);
+
+        palette.element.addEventListener("svg-uploaded", (event) => {
+          namespaceControl(event.detail.control, palette.prefix);
+          console.log(`${palette.prefix} uploaded SVG added as`, event.detail.control.id);
+        });
+      }
+
+      function namespaceExistingControls(palette, prefix) {
+        palette.shadowRoot
+          .querySelectorAll("piece-quantity-control")
+          .forEach((control) => namespaceControl(control, prefix));
+      }
+
+      function namespaceControl(control, prefix) {
+        if (control.dataset.namespacedBy === prefix) return;
+
+        const currentId = control.id || control.getAttribute("piece-kind") || "piece";
+        const currentKind = control.getAttribute("piece-kind") || currentId;
+
+        control.id = `${prefix}-${currentId}`;
+        control.setAttribute("piece-kind", `${prefix}-${currentKind}`);
+        control.dataset.namespacedBy = prefix;
+      }
+    </script>
+  </body>
+</html>

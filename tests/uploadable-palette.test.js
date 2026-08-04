@@ -49,6 +49,21 @@ function createSvgFile(contents = SIMPLE_SVG, name = "front-bodice.svg") {
   });
 }
 
+function createImageFile(contents = "fake image contents", name = "front-bodice.jpg") {
+  return new File([contents], name, {
+    type: "image/jpeg",
+  });
+}
+
+function jsonResponse(data, options = {}) {
+  return new Response(JSON.stringify(data), {
+    status: options.status ?? 200,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 function waitForUploadEvents(palette, count) {
   return new Promise((resolve) => {
     const events = [];
@@ -116,6 +131,8 @@ describe("UploadablePalette", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   test("registers the custom element", () => {
@@ -128,6 +145,7 @@ describe("UploadablePalette", () => {
 
     expect(input).not.toBeNull();
     expect(input.accept).toContain(".svg");
+    expect(input.accept).toContain("image/*");
     expect(input.multiple).toBe(true);
   });
 
@@ -159,6 +177,82 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.getAttribute("value")).toBe("0");
     expect(palette.shadowRoot.getElementById(control.id)).toBe(control);
+  });
+
+  test("converts an uploaded photo into an SVG piece quantity control", async () => {
+    const { palette } = createFixture();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "front-bodice.jpg",
+              filename: "saved-front-bodice.jpg",
+              url: "/uploads/saved-front-bodice.jpg",
+              measure_url: "/measure/saved-front-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          svg: [SIMPLE_SVG],
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [event] = await uploadFiles(palette, [createImageFile()]);
+    const control = event.detail.control;
+    const [uploadUrl, uploadOptions] = fetchMock.mock.calls[0];
+
+    expect(uploadUrl).toBe("../upload.php");
+    expect(uploadOptions.method).toBe("POST");
+    expect(uploadOptions.body).toBeInstanceOf(FormData);
+    expect(uploadOptions.body.getAll("photos[]")).toHaveLength(1);
+    expect(uploadOptions.body.getAll("photos[]")[0].name).toBe(
+      "front-bodice.jpg",
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe("/measure/saved-front-bodice.jpg");
+    expect(control.id).toBe("uploaded-front-bodice-0-control");
+    expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
+    expect(control.getAttribute("label")).toBe("Front Bodice");
+    expect(control.querySelector("#front-path")).not.toBeNull();
+  });
+
+  test("uses the photo-upload-endpoint attribute for photo conversions", async () => {
+    const { palette } = createFixture();
+    palette.setAttribute("photo-upload-endpoint", "/custom-upload.php");
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "front-bodice.jpg",
+              filename: "saved-front-bodice.jpg",
+              url: "/uploads/saved-front-bodice.jpg",
+              measure_url: "/measure/saved-front-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          svg: [SIMPLE_SVG],
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFiles(palette, [createImageFile()]);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/custom-upload.php");
   });
 
   test("retargets existing and uploaded controls when the board attribute changes", async () => {
@@ -336,6 +430,84 @@ describe("UploadablePalette", () => {
     expect(
       palette.shadowRoot.querySelectorAll("piece-quantity-control"),
     ).toHaveLength(initialControls);
+  });
+
+  test("reports photo upload conversion failures without adding a control", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const initialControls = palette.shadowRoot.querySelectorAll(
+      "piece-quantity-control",
+    ).length;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Unsupported image format.",
+          },
+          {
+            status: 400,
+          },
+        ),
+      ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures).toHaveLength(1);
+    expect(event.detail.failures[0].file.name).toBe("front-bodice.jpg");
+    expect(event.detail.failures[0].error.message).toBe(
+      "Unsupported image format.",
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+    expect(palette.statusEl.classList.contains("error")).toBe(true);
+    expect(
+      palette.shadowRoot.querySelectorAll("piece-quantity-control"),
+    ).toHaveLength(initialControls);
+  });
+
+  test("reports contour measurement failures without adding a control", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            files: [
+              {
+                status: "success",
+                original_name: "front-bodice.jpg",
+                filename: "saved-front-bodice.jpg",
+                url: "/uploads/saved-front-bodice.jpg",
+                measure_url: "/measure/saved-front-bodice.jpg",
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse(
+            {
+              error: "No contour could be detected.",
+            },
+            {
+              status: 422,
+            },
+          ),
+        ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "No contour could be detected.",
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
   });
 
   test("throws for malformed SVG documents", () => {

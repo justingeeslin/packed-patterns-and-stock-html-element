@@ -3,10 +3,32 @@
 import DraggableSvgBoard from "/node_modules/draggable-svg-html-element/src/DraggableSvgBoard.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+export const DEFAULT_PACKAIDE_ENDPOINT =
+  "https://secure-refuge-29958-07dfc33a91ee.herokuapp.com/proxy/";
+const DEFAULT_PACK_OPTIONS = {
+  tolerance: 0.03,
+  offset: 0,
+  rotations: 1,
+  persist: false,
+};
+const PACK_OPTION_ATTRIBUTES = {
+  "include-stock": "include_stock",
+  offset: "offset",
+  "partial-solution": "partial_solution",
+  persist: "persist",
+  rotations: "rotations",
+  "stock-inset": "stock_inset",
+  tolerance: "tolerance",
+};
+const BOOLEAN_PACK_OPTIONS = new Set([
+  "include_stock",
+  "partial_solution",
+  "persist",
+]);
 
 export class PatternPackBoard extends DraggableSvgBoard {
   static get observedAttributes() {
-	return [];
+	return ["endpoint", "pack-options", ...Object.keys(PACK_OPTION_ATTRIBUTES)];
   }
 
   constructor() {
@@ -15,8 +37,6 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	this._observer = null;
 	this._syncTimer = null;
 	this._isConnected = false;
-	
-	this.endpoint = "https://secure-refuge-29958-07dfc33a91ee.herokuapp.com/proxy/"
 	
 	// Grid-like layout options
 	this.gap = 50;
@@ -143,40 +163,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		
 		this._initializeRightmostX()
 		
-		this._observer = new MutationObserver((records) => {
-			console.log("[PPB] Mutation seen!")
-			for (const mutation of records) {
-				for (const node of mutation.addedNodes) {
-					this._handleAddedNode(node);
-				}
-			}
-			
-			// if (this._shouldSync(records)) {
-			// 	this._scheduleSync();
-			// }
-		});
-
-		this._observer.observe(this, {
-		childList: true,
-		subtree: true,
-		attributes: true,
-		attributeFilter: [
-			"d",
-			"points",
-			"transform",
-			"x",
-			"y",
-			"width",
-			"height",
-			"cx",
-			"cy",
-			"r",
-			"role",
-			"data-owner-control",
-			"data-piece-kind",
-			"data-instance-id"
-		]
-		});
+		this._startObserver();
 	
 		this._scheduleSync();
 	}
@@ -197,8 +184,24 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	super.disconnectedCallback?.();
   }
 
-  attributeChangedCallback(name, oldValue, newValue) {
-	if (name === "endpoint" && oldValue !== newValue && this.isConnected) {
+  get endpoint() {
+	const configuredEndpoint = this.getAttribute("endpoint");
+	return configuredEndpoint === null
+	  ? DEFAULT_PACKAIDE_ENDPOINT
+	  : configuredEndpoint;
+  }
+
+  set endpoint(value) {
+	if (value === null || value === undefined) {
+	  this.removeAttribute("endpoint");
+	  return;
+	}
+
+	this.setAttribute("endpoint", String(value));
+  }
+
+	  attributeChangedCallback(name, oldValue, newValue) {
+	if (oldValue !== newValue && this.isConnected) {
 	  this._scheduleSync();
 	}
   }
@@ -208,28 +211,30 @@ export class PatternPackBoard extends DraggableSvgBoard {
   }
 
   getPayload() {
-	const garmentSvgs = this._serializeAsStandaloneSvg(Array.from(
-		this.querySelectorAll('[role="garment"]'))
-	)
+	const garmentNodes = this._roleNodes("garment");
+	const stockNodes = this._roleNodes("stock");
+	const stockSvgs = stockNodes
+	  .map((node) => this._serializeAsStandaloneSvg([node]))
+	  .filter(Boolean);
+	const partsSvg = this._serializeAsStandaloneSvg(garmentNodes);
 	
-	const stockSvgs = this._serializeAsStandaloneSvg(Array.from(
-		this.querySelectorAll('[role="stock"]')
-	))
+	console.log("Garment SVG", partsSvg)
+	console.log("Stock SVGs", stockSvgs)
 	
-	console.log("Garment SVGS", garmentSvgs)
-	console.log("Stock SVGS", stockSvgs)
-	
-	var payload = {
-		"id":"packboard",
-		"input": {}
-	}
+	const payload = {
+		input: {
+			...this._packOptions(),
+		}
+	};
 
-	if (stockSvgs[0] !== null) {
-		payload.input.stock = stockSvgs
+	if (stockSvgs.length === 1) {
+		payload.input.stock_svg = stockSvgs[0];
+	} else if (stockSvgs.length > 1) {
+		payload.input.stock_svgs = stockSvgs;
 	}
 	
-	if (garmentSvgs[0] !== null) {
-		payload.input.parts = garmentSvgs
+	if (partsSvg) {
+		payload.input.parts_svg = partsSvg;
 	}
 	
 	console.log("Payload:", payload)
@@ -244,100 +249,57 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	this.progressEl.classList.remove("hidden");
 	
 	// Disable the mutation observer - to be reconnected upon calling connectedCalback
-	this._observer.disconnect();
-	this._observer = null;
-
-	const response = await fetch(this.endpoint, {
-	  method: "POST",
-	  headers: { 
-		  "Content-Type": "application/json",
-	  },
-	  body: JSON.stringify(this.getPayload())
-	});
-
-	if (!response.ok) {
-	  throw new Error(`Sync failed with status ${response.status}`);
+	const restoreObserver = Boolean(this._observer);
+	if (this._observer) {
+		this._observer.disconnect();
+		this._observer = null;
 	}
-	
-	this.progressEl.classList.add("hidden");
-	
-	// Apply the bins and the parts
-	// Parse JSON body
-	const data = await response.json();
-	
-	if (data.status == "IN_QUEUE") {
-		console.log('In Queue... check again later. TODO')
-	}
-	
-	console.log("SVG Packing result:", data);
-	
-	// Debug
-	window.pack_output = data.output
-	
-	var svgResult = data.output.garment_marker;
-	
-	if (!svgResult.includes('xmlns=')) {
-	  svgResult = svgResult.replace(
-		"<svg",
-		'<svg xmlns="http://www.w3.org/2000/svg"'
-	  );
-	}
-	
-	const parser = new DOMParser();
-	const doc = parser.parseFromString(svgResult, "image/svg+xml");
-	
-	const parserError = doc.querySelector("parsererror");
-	
-	if (parserError) {
-	
-	  console.error("SVG parse error:", parserError.textContent);
-	
-	  console.log("Raw SVG result:", svgResult);
-	
-	  return;
-	
-	}
-	else {
-		console.log('No errors parsing the SVG..')
-	}
-	
-	const parsedSvg = doc.documentElement;
 
-	// Import into the current HTML document
-	const svgElement = document.importNode(parsedSvg, true);
-	svgElement.setAttribute("id", "board")
+	try {
+		const response = await fetch(this.endpoint, {
+		  method: "POST",
+		  headers: { 
+			  "Content-Type": "application/json",
+		  },
+		  body: JSON.stringify(this.getPayload())
+		});
 	
-	const garment_pieces = svgElement.querySelectorAll("path, polygon");
+		if (!response.ok) {
+		  throw new Error(`Sync failed with status ${response.status}`);
+		}
+		
+		// Apply the bins and the parts
+		// Parse JSON body
+		const data = await response.json();
+		
+		if (data.status == "IN_QUEUE") {
+			console.log('In Queue... check again later. TODO')
+			return response;
+		}
+		
+		console.log("SVG Packing result:", data);
+		
+		const packOutput = this._packOutput(data);
+		if (typeof window !== "undefined") {
+			window.pack_output = packOutput;
+		}
+		
+		const svgResult = this._svgResult(data);
+		if (!svgResult) {
+			throw new Error("Packaide response did not include an SVG.");
+		}
+		
+		this._replaceBoardSvg(svgResult);
+		
+		super.connectedCallback?.();
 	
-	// garment_pieces.forEach(el => {
-	// 	console.log('Setting draggable to true..', el, el.dataset)
-	//   el.dataset.draggable = "true";
-	//   el.setAttribute("pointer-events", "all");
-	// });
-
-	// console.log('About to replace: But first this', this)
-	console.log('About to replace', this.querySelector("svg"), svgElement)
-	// And the draggable wrapper to the packboard
-	this.querySelector("svg").replaceWith(svgElement);
-	
-	// console.log("Appending SVG element to the body")
-	// // console.log(svgElement instanceof SVGElement);
-	// // console.log(svgElement instanceof HTMLElement);
-	// 
-	// console.log("SVGElement constructor name", svgElement.constructor.name);
-	// 
-	// console.log(svgElement instanceof SVGSVGElement);
-	// 
-	// console.log(svgElement.namespaceURI);
-	// 
-	// 
-	// 
-	// document.body.appendChild(svgElement);
-	// this.appendChild(svgElement)
-	
-	super.connectedCallback?.();
-
-	return response;
+		return response;
+	} finally {
+		this.progressEl.classList.add("hidden");
+		if (restoreObserver && this.isConnected && !this._observer) {
+			this._startObserver();
+		}
+	}
   }
 
   _shouldSync(records) {
@@ -366,20 +328,69 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		);
 	  });
 	}, 150);
+	  }
+
+  _startObserver() {
+	if (this._observer) {
+	  this._observer.disconnect();
+	}
+
+	this._observer = new MutationObserver((records) => {
+		console.log("[PPB] Mutation seen!")
+		for (const mutation of records) {
+			for (const node of mutation.addedNodes) {
+				this._handleAddedNode(node);
+			}
+		}
+		
+		// if (this._shouldSync(records)) {
+		// 	this._scheduleSync();
+		// }
+	});
+
+	this._observer.observe(this, {
+	childList: true,
+	subtree: true,
+	attributes: true,
+	attributeFilter: [
+		"d",
+		"points",
+		"transform",
+		"x",
+		"y",
+		"width",
+		"height",
+		"cx",
+		"cy",
+		"r",
+		"role",
+		"data-owner-control",
+		"data-piece-kind",
+		"data-instance-id"
+	]
+	});
   }
 
   _serializeAsStandaloneSvg(sourceNodes) {
+	if (sourceNodes.length === 0) {
+	  return null;
+	}
+
 	const svg = document.createElementNS(SVG_NS, "svg");
 	
 	const standard_width = 1000
 	const standard_height = 800
-	svg.setAttribute("width", standard_width);
-	svg.setAttribute("height", standard_height);
+	const boardSvg = this.querySelector("svg");
+	const viewBox = boardSvg?.getAttribute("viewBox");
+	const width = boardSvg?.getAttribute("width") || this._viewBoxDimension(viewBox, 2) || standard_width;
+	const height = boardSvg?.getAttribute("height") || this._viewBoxDimension(viewBox, 3) || standard_height;
+	svg.setAttribute("width", width);
+	svg.setAttribute("height", height);
 	
 	svg.setAttribute("xmlns", SVG_NS);
 	svg.setAttribute(
 	  "viewBox",
-	  this.getAttribute("viewBox") || `0 0 ${standard_width} ${standard_height}`
+	  viewBox || this.getAttribute("viewBox") || `0 0 ${standard_width} ${standard_height}`
 	);
 	
 	for (var sourceNode of sourceNodes) {
@@ -387,6 +398,116 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	}
 		
 	return new XMLSerializer().serializeToString(svg);
+  }
+
+  _roleNodes(role) {
+	return Array.from(this.querySelectorAll(`[role="${role}"]`)).filter(
+	  (node) => !node.parentElement?.closest(`[role="${role}"]`)
+	);
+  }
+
+  _packOptions() {
+	const options = { ...DEFAULT_PACK_OPTIONS };
+	const packOptions = this.getAttribute("pack-options");
+
+	if (packOptions) {
+	  Object.assign(options, JSON.parse(packOptions));
+	}
+
+	for (const [attribute, optionName] of Object.entries(PACK_OPTION_ATTRIBUTES)) {
+	  if (!this.hasAttribute(attribute)) continue;
+
+	  const value = this.getAttribute(attribute);
+	  options[optionName] = BOOLEAN_PACK_OPTIONS.has(optionName)
+		? this._booleanAttributeValue(value)
+		: Number(value);
+	}
+
+	return options;
+  }
+
+  _booleanAttributeValue(value) {
+	if (value === "" || value === null) {
+	  return true;
+	}
+
+	return !["0", "false", "no"].includes(String(value).toLowerCase());
+  }
+
+  _viewBoxDimension(viewBox, index) {
+	if (!viewBox) {
+	  return null;
+	}
+
+	const value = Number(viewBox.trim().split(/[\s,]+/)[index]);
+	return Number.isFinite(value) ? value : null;
+  }
+
+  _packOutput(data) {
+	if (data?.output && (data.output.svg || data.output.outputs || data.output.garment_marker)) {
+	  return data.output;
+	}
+
+	return data;
+  }
+
+  _svgResult(data) {
+	const output = this._packOutput(data);
+
+	if (typeof output?.svg === "string") {
+	  return output.svg;
+	}
+
+	if (Array.isArray(output?.outputs)) {
+	  const firstOutputWithSvg = output.outputs.find(
+		(result) => typeof result?.svg === "string"
+	  );
+	  return firstOutputWithSvg?.svg || null;
+	}
+
+	if (typeof output?.garment_marker === "string") {
+	  return output.garment_marker;
+	}
+
+	return null;
+  }
+
+  _replaceBoardSvg(svgResult) {
+	let svgText = svgResult;
+	if (!svgText.includes('xmlns=')) {
+	  svgText = svgText.replace(
+		"<svg",
+		'<svg xmlns="http://www.w3.org/2000/svg"'
+	  );
+	}
+	
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(svgText, "image/svg+xml");
+	
+	const parserError = doc.querySelector("parsererror");
+	
+	if (parserError || doc.documentElement?.localName !== "svg") {
+	  console.error("SVG parse error:", parserError?.textContent);
+	  console.log("Raw SVG result:", svgText);
+	  throw new Error("Packaide response did not include a valid SVG.");
+	}
+	else {
+		console.log('No errors parsing the SVG..')
+	}
+	
+	const parsedSvg = doc.documentElement;
+
+	// Import into the current HTML document
+	const svgElement = document.importNode(parsedSvg, true);
+	svgElement.setAttribute("id", "board")
+	
+	console.log('About to replace', this.querySelector("svg"), svgElement)
+	const currentSvg = this.querySelector("svg");
+	if (currentSvg) {
+		currentSvg.replaceWith(svgElement);
+	} else {
+		this.appendChild(svgElement);
+	}
   }
 }
 

@@ -171,7 +171,15 @@
 
       <section class="board-panel" aria-labelledby="board-title">
         <h2 class="board-title" id="board-title">Packboard</h2>
-        <pattern-pack-board>
+        <pattern-pack-board
+          endpoint="/__packaide_irregular_stock"
+          tolerance="0.03"
+          offset="0"
+          rotations="1"
+          persist="false"
+          include-stock="true"
+          partial-solution="true"
+        >
           <svg
             id="board"
             viewBox="0 0 1200 750"
@@ -195,7 +203,14 @@
               id="stock-shirt"
               role="stock"
               points="561.00,90.00 441.00,29.00 350.00,0.00 327.00,15.00 286.00,21.00 235.00,17.00 202.00,2.00 123.00,30.00 0.00,95.00 60.00,202.00 110.00,191.00 111.00,570.00 458.00,566.00 455.00,186.00 505.00,199.00"
-              transform="translate(68 74)"
+            ></polygon>
+            <polygon
+              id="starter-piece"
+              role="garment"
+              data-draggable="true"
+              points="0.00,504.00 60.00,533.00 317.00,394.00 87.00,0.00"
+              transform="translate(760 120)"
+              pointer-events="all"
             ></polygon>
           </svg>
         </pattern-pack-board>
@@ -205,6 +220,17 @@
     <script type="module">
       import "./src/UploadablePalette.js";
       import "./src/PatternPackBoard.js";
+
+      const endpoint = new URLSearchParams(window.location.search).get("endpoint");
+      const packBoard = document.querySelector("pattern-pack-board");
+
+      if (endpoint) {
+        packBoard.endpoint = endpoint;
+      }
+
+      packBoard.addEventListener("sync-error", (event) => {
+        console.error("SVG sync failed", event.detail.error);
+      });
 
       const palettes = [
         { element: document.getElementById("palette-a"), prefix: "palette-a" },

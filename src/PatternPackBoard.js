@@ -25,6 +25,43 @@ const BOOLEAN_PACK_OPTIONS = new Set([
   "partial_solution",
   "persist",
 ]);
+const SVG_ROOT_RESULT_ATTRIBUTES = [
+  "viewBox",
+  "width",
+  "height",
+  "preserveAspectRatio",
+];
+const SVG_GRAPHIC_TAGS = new Set([
+  "circle",
+  "ellipse",
+  "image",
+  "line",
+  "path",
+  "polygon",
+  "polyline",
+  "rect",
+  "text",
+  "use",
+]);
+const SVG_NON_DRAWING_TAGS = new Set([
+  "clipPath",
+  "defs",
+  "desc",
+  "filter",
+  "foreignObject",
+  "linearGradient",
+  "marker",
+  "mask",
+  "metadata",
+  "pattern",
+  "radialGradient",
+  "script",
+  "style",
+  "symbol",
+  "title",
+]);
+const SVG_BLOCKED_IMPORT_TAGS = new Set(["foreignObject", "script"]);
+const SVG_GRAPHIC_SELECTOR = Array.from(SVG_GRAPHIC_TAGS).join(",");
 
 export class PatternPackBoard extends DraggableSvgBoard {
   static get observedAttributes() {
@@ -284,12 +321,12 @@ export class PatternPackBoard extends DraggableSvgBoard {
 			window.pack_output = packOutput;
 		}
 		
-		const svgResult = this._svgResult(data);
-		if (!svgResult) {
+		const svgResults = this._svgResults(data);
+		if (svgResults.length === 0) {
 			throw new Error("Packaide response did not include an SVG.");
 		}
 		
-		this._replaceBoardSvg(svgResult);
+		this._replaceBoardSvg(svgResults);
 		
 		super.connectedCallback?.();
 	
@@ -452,27 +489,59 @@ export class PatternPackBoard extends DraggableSvgBoard {
   }
 
   _svgResult(data) {
+	const [firstSvgResult] = this._svgResults(data);
+	return firstSvgResult || null;
+  }
+
+  _svgResults(data) {
 	const output = this._packOutput(data);
 
 	if (typeof output?.svg === "string") {
-	  return output.svg;
+	  return [output.svg];
 	}
 
 	if (Array.isArray(output?.outputs)) {
-	  const firstOutputWithSvg = output.outputs.find(
-		(result) => typeof result?.svg === "string"
-	  );
-	  return firstOutputWithSvg?.svg || null;
+	  return output.outputs
+		.filter((result) => typeof result?.svg === "string")
+		.map((result) => result.svg);
 	}
 
 	if (typeof output?.garment_marker === "string") {
-	  return output.garment_marker;
+	  return [output.garment_marker];
 	}
 
-	return null;
+	return [];
   }
 
   _replaceBoardSvg(svgResult) {
+	const parsedSvgs = (Array.isArray(svgResult) ? svgResult : [svgResult])
+	  .map((svgText) => this._parsePackedSvg(svgText));
+	const parsedSvg = parsedSvgs[0];
+
+	const currentSvg = this.querySelector("svg");
+	if (currentSvg) {
+		const preservedNodes = this._preservedBoardNodes(currentSvg);
+		const garmentMetadata = this._pieceMetadataQueue("garment");
+		const importedNodes = parsedSvgs.flatMap((resultSvg) =>
+		  Array.from(resultSvg.childNodes)
+			.map((node) => document.importNode(node, true))
+			.filter((node) => !this._isBlockedImportedSvgNode(node))
+		);
+
+		this._copyPackedSvgRootAttributes(parsedSvg, currentSvg);
+		this._normalizePackedGarments(importedNodes, garmentMetadata);
+		currentSvg.replaceChildren(...preservedNodes, ...importedNodes);
+		this.svg = currentSvg;
+	} else {
+		const svgElement = document.importNode(parsedSvg, true);
+		svgElement.setAttribute("id", svgElement.getAttribute("id") || "board");
+		svgElement.setAttribute("xmlns", SVG_NS);
+		this.appendChild(svgElement);
+		this.svg = svgElement;
+	}
+  }
+
+  _parsePackedSvg(svgResult) {
 	let svgText = svgResult;
 	if (!svgText.includes('xmlns=')) {
 	  svgText = svgText.replace(
@@ -495,19 +564,148 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		console.log('No errors parsing the SVG..')
 	}
 	
-	const parsedSvg = doc.documentElement;
+	return doc.documentElement;
+  }
 
-	// Import into the current HTML document
-	const svgElement = document.importNode(parsedSvg, true);
-	svgElement.setAttribute("id", "board")
-	
-	console.log('About to replace', this.querySelector("svg"), svgElement)
-	const currentSvg = this.querySelector("svg");
-	if (currentSvg) {
-		currentSvg.replaceWith(svgElement);
-	} else {
-		this.appendChild(svgElement);
+  _copyPackedSvgRootAttributes(sourceSvg, targetSvg) {
+	const id = targetSvg.getAttribute("id") || sourceSvg.getAttribute("id") || "board";
+
+	for (const attribute of SVG_ROOT_RESULT_ATTRIBUTES) {
+	  if (sourceSvg.hasAttribute(attribute)) {
+		targetSvg.setAttribute(attribute, sourceSvg.getAttribute(attribute));
+	  }
 	}
+
+	targetSvg.setAttribute("id", id);
+	targetSvg.setAttribute("xmlns", SVG_NS);
+  }
+
+  _preservedBoardNodes(svg) {
+	return Array.from(svg.childNodes).filter((node) =>
+	  node instanceof Element && this._isPersistentBoardNode(node)
+	);
+  }
+
+  _isPersistentBoardNode(node) {
+	if (node.localName === "defs") {
+	  return true;
+	}
+
+	if (
+	  node.matches?.("[data-board-layer], .board-background, .grid-minor, .grid-major")
+	) {
+	  return true;
+	}
+
+	if (
+	  node.matches?.("[role], [data-draggable], [data-owner-control], [data-piece-kind]")
+	) {
+	  return false;
+	}
+
+	return !node.querySelector?.(
+	  "[role], [data-draggable], [data-owner-control], [data-piece-kind]"
+	);
+  }
+
+  _pieceMetadataQueue(role) {
+	const seen = new Set();
+
+	return this._roleNodes(role)
+	  .map((roleNode) => {
+		const ownerNode = roleNode.closest?.("[data-owner-control][data-piece-kind]");
+		const sourceNode = ownerNode || roleNode;
+
+		if (!sourceNode || seen.has(sourceNode)) {
+		  return null;
+		}
+
+		seen.add(sourceNode);
+
+		return {
+		  ownerControl: sourceNode.getAttribute("data-owner-control"),
+		  pieceKind: sourceNode.getAttribute("data-piece-kind"),
+		  instanceId: sourceNode.getAttribute("data-instance-id"),
+		};
+	  })
+	  .filter((metadata) =>
+		metadata?.ownerControl || metadata?.pieceKind || metadata?.instanceId
+	  );
+  }
+
+  _normalizePackedGarments(nodes, metadataQueue) {
+	let metadataIndex = 0;
+
+	for (const node of nodes) {
+	  if (!(node instanceof Element)) continue;
+
+	  const candidates = this._packedGarmentCandidates(node);
+
+	  for (const candidate of candidates) {
+		const metadata = metadataQueue[metadataIndex++] || {};
+		this._markPackedGarment(candidate, metadata);
+	  }
+	}
+  }
+
+  _packedGarmentCandidates(node) {
+	if (this._isBlockedSvgNode(node) || node.closest?.('[role="stock"]')) {
+	  return [];
+	}
+
+	if (node.getAttribute("role") === "stock") {
+	  return [];
+	}
+
+	if (
+	  node.getAttribute("role") === "garment" ||
+	  node.getAttribute("data-draggable") === "true" ||
+	  this._isSvgGraphicElement(node)
+	) {
+	  return [node];
+	}
+
+	if (
+	  node.localName === "g" &&
+	  !node.querySelector('[role="stock"]') &&
+	  node.querySelector(SVG_GRAPHIC_SELECTOR)
+	) {
+	  return [node];
+	}
+
+	return Array.from(node.children || []).flatMap((child) =>
+	  this._packedGarmentCandidates(child)
+	);
+  }
+
+  _markPackedGarment(node, metadata) {
+	node.setAttribute("role", "garment");
+	node.setAttribute("data-draggable", "true");
+	node.setAttribute("pointer-events", "all");
+
+	if (metadata.ownerControl) {
+	  node.setAttribute("data-owner-control", metadata.ownerControl);
+	}
+
+	if (metadata.pieceKind) {
+	  node.setAttribute("data-piece-kind", metadata.pieceKind);
+	}
+
+	if (metadata.instanceId) {
+	  node.setAttribute("data-instance-id", metadata.instanceId);
+	}
+  }
+
+  _isSvgGraphicElement(node) {
+	return SVG_GRAPHIC_TAGS.has(node.localName);
+  }
+
+  _isBlockedSvgNode(node) {
+	return node instanceof Element && SVG_NON_DRAWING_TAGS.has(node.localName);
+  }
+
+  _isBlockedImportedSvgNode(node) {
+	return node instanceof Element && SVG_BLOCKED_IMPORT_TAGS.has(node.localName);
   }
 }
 

@@ -3,6 +3,10 @@ import "./PieceQuantityControl.js";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const SVG_MIME_TYPE = "image/svg+xml";
 const DEFAULT_PHOTO_UPLOAD_ENDPOINT = "../upload.php";
+const DEFAULT_OPENCV_ENDPOINT =
+  "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com";
+const DEFAULT_REFERENCE_WIDTH_MM = 215.9;
+const DEFAULT_REFERENCE_HEIGHT_MM = 279.4;
 
 const DEFAULT_CONTROLS = `
   <piece-quantity-control
@@ -203,6 +207,18 @@ export class UploadablePalette extends HTMLElement {
     return this.getAttribute("photo-upload-endpoint") || DEFAULT_PHOTO_UPLOAD_ENDPOINT;
   }
 
+  get opencvEndpoint() {
+    return this.getAttribute("opencv-endpoint") || DEFAULT_OPENCV_ENDPOINT;
+  }
+
+  get referenceWidthMm() {
+    return this._numberAttribute("reference-width-mm", DEFAULT_REFERENCE_WIDTH_MM);
+  }
+
+  get referenceHeightMm() {
+    return this._numberAttribute("reference-height-mm", DEFAULT_REFERENCE_HEIGHT_MM);
+  }
+
   _onFileInputChange = async (event) => {
     const input = event.currentTarget;
     const files = Array.from(input.files || []);
@@ -317,32 +333,46 @@ export class UploadablePalette extends HTMLElement {
 
     const uploadedFile = uploadResult.files[0];
 
-    if (uploadedFile.status !== "success") {
+    if (uploadedFile.status && uploadedFile.status !== "success") {
       const originalName = uploadedFile.original_name || file.name || "file";
       throw new Error(
         `Error uploading ${originalName}: ${uploadedFile.message || "Upload failed."}`,
       );
     }
 
-    if (!uploadedFile.measure_url) {
-      throw new Error("Upload response did not include a measure URL.");
+    const uploadedUrl = this._uploadedFileUrl(uploadedFile);
+
+    if (!uploadedUrl) {
+      throw new Error("Upload response did not include a file URL.");
     }
 
-    const measureResult = await this._fetchJson(
-      uploadedFile.measure_url,
-      undefined,
-      "Measure request failed.",
+    const svgText = await this._fetchSvgText(
+      this._opencvSvgUrl(uploadedUrl),
+      "OpenCV conversion failed.",
     );
 
-    const svgText = Array.isArray(measureResult.svg)
-      ? measureResult.svg[0]
-      : measureResult.svg;
-
     if (typeof svgText !== "string" || svgText.trim() === "") {
-      throw new Error("Measure response did not include an SVG.");
+      throw new Error("OpenCV response did not include an SVG.");
     }
 
     return svgText;
+  }
+
+  _uploadedFileUrl(uploadedFile) {
+    const url = uploadedFile.url || uploadedFile.file_url || uploadedFile.location;
+
+    if (!url) return "";
+
+    return new URL(url, document.baseURI).href;
+  }
+
+  _opencvSvgUrl(uploadedUrl) {
+    const url = new URL(this.opencvEndpoint, document.baseURI);
+    url.searchParams.set("url", uploadedUrl);
+    url.searchParams.set("reference_width_mm", String(this.referenceWidthMm));
+    url.searchParams.set("reference_height_mm", String(this.referenceHeightMm));
+
+    return url.href;
   }
 
   async _fetchJson(url, options, fallbackMessage) {
@@ -360,6 +390,38 @@ export class UploadablePalette extends HTMLElement {
     }
 
     return result;
+  }
+
+  async _fetchSvgText(url, fallbackMessage) {
+    const response = await fetch(url);
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(this._responseErrorMessage(text) || fallbackMessage);
+    }
+
+    return this._svgTextFromResponseBody(text);
+  }
+
+  _svgTextFromResponseBody(text) {
+    try {
+      const result = JSON.parse(text);
+      const svgText = Array.isArray(result.svg) ? result.svg[0] : result.svg;
+
+      return typeof svgText === "string" ? svgText : "";
+    } catch {
+      return text;
+    }
+  }
+
+  _responseErrorMessage(text) {
+    try {
+      const result = JSON.parse(text);
+
+      return result?.error || result?.message || "";
+    } catch {
+      return "";
+    }
   }
 
   _isSvgFile(file) {
@@ -441,6 +503,12 @@ export class UploadablePalette extends HTMLElement {
     const width = Number.parseFloat(svg.getAttribute("width")) || 100;
     const height = Number.parseFloat(svg.getAttribute("height")) || 100;
     return `0 0 ${width} ${height}`;
+  }
+
+  _numberAttribute(name, fallback) {
+    const value = Number.parseFloat(this.getAttribute(name));
+
+    return Number.isFinite(value) ? value : fallback;
   }
 
   _basename(fileName) {

@@ -17,6 +17,27 @@ const board = document.querySelector("pattern-pack-board");
 board.endpoint = "/api/pack/v2";
 ```
 
+## UploadablePalette image conversions
+
+`<uploadable-palette>` adds uploaded SVG files directly as
+`<piece-quantity-control>` entries. Non-SVG image uploads are posted to
+`photo-upload-endpoint` first, then the returned file URL is sent to the OpenCV
+SVG endpoint:
+
+```html
+<uploadable-palette
+  board="board"
+  photo-upload-endpoint="../upload.php"
+  opencv-endpoint="https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com"
+  reference-width-mm="215.9"
+  reference-height-mm="279.4">
+</uploadable-palette>
+```
+
+The OpenCV request is sent as
+`?url=...&reference_width_mm=215.9&reference_height_mm=279.4`, and the returned
+SVG is added through the same path as a directly uploaded SVG.
+
 ## Local irregular stock worker test
 
 The example pages post to `/__packaide_irregular_stock`, which Vite proxies to

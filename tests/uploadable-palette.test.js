@@ -64,6 +64,15 @@ function jsonResponse(data, options = {}) {
   });
 }
 
+function svgResponse(svgText, options = {}) {
+  return new Response(svgText, {
+    status: options.status ?? 200,
+    headers: {
+      "Content-Type": "image/svg+xml",
+    },
+  });
+}
+
 function waitForUploadEvents(palette, count) {
   return new Promise((resolve) => {
     const events = [];
@@ -192,16 +201,11 @@ describe("UploadablePalette", () => {
               original_name: "front-bodice.jpg",
               filename: "saved-front-bodice.jpg",
               url: "/uploads/saved-front-bodice.jpg",
-              measure_url: "/measure/saved-front-bodice.jpg",
             },
           ],
         }),
       )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          svg: [SIMPLE_SVG],
-        }),
-      );
+      .mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -216,7 +220,15 @@ describe("UploadablePalette", () => {
     expect(uploadOptions.body.getAll("photos[]")[0].name).toBe(
       "front-bodice.jpg",
     );
-    expect(fetchMock.mock.calls[1][0]).toBe("/measure/saved-front-bodice.jpg");
+    const opencvUrl = new URL(fetchMock.mock.calls[1][0]);
+    expect(opencvUrl.origin).toBe(
+      "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com",
+    );
+    expect(opencvUrl.searchParams.get("url")).toBe(
+      new URL("/uploads/saved-front-bodice.jpg", document.baseURI).href,
+    );
+    expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("215.9");
+    expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("279.4");
     expect(control.id).toBe("uploaded-front-bodice-0-control");
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");
@@ -237,22 +249,49 @@ describe("UploadablePalette", () => {
               original_name: "front-bodice.jpg",
               filename: "saved-front-bodice.jpg",
               url: "/uploads/saved-front-bodice.jpg",
-              measure_url: "/measure/saved-front-bodice.jpg",
             },
           ],
         }),
       )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          svg: [SIMPLE_SVG],
-        }),
-      );
+      .mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
 
     vi.stubGlobal("fetch", fetchMock);
 
     await uploadFiles(palette, [createImageFile()]);
 
     expect(fetchMock.mock.calls[0][0]).toBe("/custom-upload.php");
+  });
+
+  test("uses OpenCV endpoint and reference size attributes for photo conversions", async () => {
+    const { palette } = createFixture();
+    palette.setAttribute("opencv-endpoint", "/custom-opencv");
+    palette.setAttribute("reference-width-mm", "100");
+    palette.setAttribute("reference-height-mm", "200");
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              original_name: "front-bodice.jpg",
+              filename: "saved-front-bodice.jpg",
+              url: "https://example.com/photo.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFiles(palette, [createImageFile()]);
+
+    const opencvUrl = new URL(fetchMock.mock.calls[1][0]);
+    expect(opencvUrl.pathname).toBe("/custom-opencv");
+    expect(opencvUrl.searchParams.get("url")).toBe("https://example.com/photo.jpg");
+    expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("100");
+    expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("200");
   });
 
   test("retargets existing and uploaded controls when the board attribute changes", async () => {
@@ -468,7 +507,115 @@ describe("UploadablePalette", () => {
     ).toHaveLength(initialControls);
   });
 
-  test("reports contour measurement failures without adding a control", async () => {
+  test("reports malformed photo upload responses without adding a control", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("not json", {
+          status: 200,
+          headers: {
+            "Content-Type": "text/plain",
+          },
+        }),
+      ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe("Upload failed.");
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports explicit photo upload file failures", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          files: [
+            {
+              status: "error",
+              original_name: "front-bodice.jpg",
+              message: "Too large.",
+            },
+          ],
+        }),
+      ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "Error uploading front-bodice.jpg: Too large.",
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports photo upload responses without file URLs", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "front-bodice.jpg",
+            },
+          ],
+        }),
+      ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "Upload response did not include a file URL.",
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("accepts JSON-wrapped OpenCV SVG responses", async () => {
+    const { palette } = createFixture();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "front-bodice.jpg",
+              filename: "saved-front-bodice.jpg",
+              url: "/uploads/saved-front-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          svg: [SIMPLE_SVG],
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [event] = await uploadFiles(palette, [createImageFile()]);
+
+    expect(event.detail.control.querySelector("#front-path")).not.toBeNull();
+  });
+
+  test("reports OpenCV conversion failures without adding a control", async () => {
     const { palette } = createFixture();
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
@@ -484,7 +631,6 @@ describe("UploadablePalette", () => {
                 original_name: "front-bodice.jpg",
                 filename: "saved-front-bodice.jpg",
                 url: "/uploads/saved-front-bodice.jpg",
-                measure_url: "/measure/saved-front-bodice.jpg",
               },
             ],
           }),
@@ -506,6 +652,77 @@ describe("UploadablePalette", () => {
 
     expect(event.detail.failures[0].error.message).toBe(
       "No contour could be detected.",
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports empty OpenCV SVG responses without adding a control", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            files: [
+              {
+                status: "success",
+                original_name: "front-bodice.jpg",
+                filename: "saved-front-bodice.jpg",
+                url: "/uploads/saved-front-bodice.jpg",
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(svgResponse("")),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "OpenCV response did not include an SVG.",
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("uses the fallback message for non-JSON OpenCV failures", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            files: [
+              {
+                status: "success",
+                original_name: "front-bodice.jpg",
+                filename: "saved-front-bodice.jpg",
+                url: "/uploads/saved-front-bodice.jpg",
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response("Server unavailable", {
+            status: 503,
+            headers: {
+              "Content-Type": "text/plain",
+            },
+          }),
+        ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "OpenCV conversion failed.",
     );
     expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
   });

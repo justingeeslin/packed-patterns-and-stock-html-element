@@ -73,6 +73,13 @@ function svgResponse(svgText, options = {}) {
   });
 }
 
+function stubReferencePrompts(palette, width = "215.9 mm", height = "279.4 mm") {
+  return vi
+    .spyOn(palette, "_askReferenceMeasurement")
+    .mockReturnValueOnce(width)
+    .mockReturnValueOnce(height);
+}
+
 function waitForUploadEvents(palette, count) {
   return new Promise((resolve) => {
     const events = [];
@@ -175,6 +182,7 @@ describe("UploadablePalette", () => {
 
   test("adds an uploaded SVG as a piece quantity control", async () => {
     const { palette } = createFixture();
+    const promptMock = stubReferencePrompts(palette);
 
     const [event] = await uploadFiles(palette, [createSvgFile()]);
     const control = event.detail.control;
@@ -186,10 +194,12 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.getAttribute("value")).toBe("0");
     expect(palette.shadowRoot.getElementById(control.id)).toBe(control);
+    expect(promptMock).not.toHaveBeenCalled();
   });
 
   test("converts an uploaded photo into an SVG piece quantity control", async () => {
     const { palette } = createFixture();
+    const promptMock = stubReferencePrompts(palette, "8.5 in", "11 in");
 
     const fetchMock = vi
       .fn()
@@ -229,6 +239,13 @@ describe("UploadablePalette", () => {
     );
     expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("215.9");
     expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("279.4");
+    expect(promptMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(
+      promptMock.mock.invocationCallOrder[0],
+    );
+    expect(promptMock.mock.invocationCallOrder[1]).toBeLessThan(
+      fetchMock.mock.invocationCallOrder[1],
+    );
     expect(control.id).toBe("uploaded-front-bodice-0-control");
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");
@@ -237,6 +254,7 @@ describe("UploadablePalette", () => {
 
   test("uses the photo-upload-endpoint attribute for photo conversions", async () => {
     const { palette } = createFixture();
+    stubReferencePrompts(palette);
     palette.setAttribute("photo-upload-endpoint", "/custom-upload.php");
 
     const fetchMock = vi
@@ -264,6 +282,7 @@ describe("UploadablePalette", () => {
 
   test("uses OpenCV endpoint and reference size attributes for photo conversions", async () => {
     const { palette } = createFixture();
+    const promptMock = stubReferencePrompts(palette, "10 cm", "2 in");
     palette.setAttribute("opencv-endpoint", "/custom-opencv");
     palette.setAttribute("reference-width-mm", "100");
     palette.setAttribute("reference-height-mm", "200");
@@ -291,7 +310,15 @@ describe("UploadablePalette", () => {
     expect(opencvUrl.pathname).toBe("/custom-opencv");
     expect(opencvUrl.searchParams.get("url")).toBe("https://example.com/photo.jpg");
     expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("100");
-    expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("200");
+    expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("50.8");
+    expect(promptMock.mock.calls[0]).toEqual([
+      "Enter the reference object width. Include units: mm, cm, or in.",
+      "100 mm",
+    ]);
+    expect(promptMock.mock.calls[1]).toEqual([
+      "Enter the reference object height. Include units: mm, cm, or in.",
+      "200 mm",
+    ]);
   });
 
   test("retargets existing and uploaded controls when the board attribute changes", async () => {
@@ -587,6 +614,7 @@ describe("UploadablePalette", () => {
 
   test("accepts JSON-wrapped OpenCV SVG responses", async () => {
     const { palette } = createFixture();
+    stubReferencePrompts(palette);
 
     const fetchMock = vi
       .fn()
@@ -617,6 +645,7 @@ describe("UploadablePalette", () => {
 
   test("reports OpenCV conversion failures without adding a control", async () => {
     const { palette } = createFixture();
+    stubReferencePrompts(palette);
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
     vi.stubGlobal(
@@ -658,6 +687,7 @@ describe("UploadablePalette", () => {
 
   test("reports empty OpenCV SVG responses without adding a control", async () => {
     const { palette } = createFixture();
+    stubReferencePrompts(palette);
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
     vi.stubGlobal(
@@ -690,6 +720,7 @@ describe("UploadablePalette", () => {
 
   test("uses the fallback message for non-JSON OpenCV failures", async () => {
     const { palette } = createFixture();
+    stubReferencePrompts(palette);
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
     vi.stubGlobal(
@@ -724,6 +755,68 @@ describe("UploadablePalette", () => {
     expect(event.detail.failures[0].error.message).toBe(
       "OpenCV conversion failed.",
     );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports cancelled reference dimension prompts without calling OpenCV", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const promptMock = stubReferencePrompts(palette, null);
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        files: [
+          {
+            status: "success",
+            original_name: "front-bodice.jpg",
+            filename: "saved-front-bodice.jpg",
+            url: "/uploads/saved-front-bodice.jpg",
+          },
+        ],
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "Reference dimensions are required.",
+    );
+    expect(promptMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports invalid reference dimension prompts without calling OpenCV", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const promptMock = stubReferencePrompts(palette, "wide");
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        files: [
+          {
+            status: "success",
+            original_name: "front-bodice.jpg",
+            filename: "saved-front-bodice.jpg",
+            url: "/uploads/saved-front-bodice.jpg",
+          },
+        ],
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    dispatchFiles(palette, [createImageFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "Reference width must be a positive number in mm, cm, or in.",
+    );
+    expect(promptMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
   });
 

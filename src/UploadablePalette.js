@@ -346,8 +346,9 @@ export class UploadablePalette extends HTMLElement {
       throw new Error("Upload response did not include a file URL.");
     }
 
+    const referenceDimensions = this._promptForReferenceDimensions();
     const svgText = await this._fetchSvgText(
-      this._opencvSvgUrl(uploadedUrl),
+      this._opencvSvgUrl(uploadedUrl, referenceDimensions),
       "OpenCV conversion failed.",
     );
 
@@ -366,13 +367,88 @@ export class UploadablePalette extends HTMLElement {
     return new URL(url, document.baseURI).href;
   }
 
-  _opencvSvgUrl(uploadedUrl) {
+  _opencvSvgUrl(
+    uploadedUrl,
+    referenceDimensions = {
+      widthMm: this.referenceWidthMm,
+      heightMm: this.referenceHeightMm,
+    },
+  ) {
     const url = new URL(this.opencvEndpoint, document.baseURI);
     url.searchParams.set("url", uploadedUrl);
-    url.searchParams.set("reference_width_mm", String(this.referenceWidthMm));
-    url.searchParams.set("reference_height_mm", String(this.referenceHeightMm));
+    url.searchParams.set(
+      "reference_width_mm",
+      this._formatMillimeters(referenceDimensions.widthMm),
+    );
+    url.searchParams.set(
+      "reference_height_mm",
+      this._formatMillimeters(referenceDimensions.heightMm),
+    );
 
     return url.href;
+  }
+
+  _promptForReferenceDimensions() {
+    return {
+      widthMm: this._promptReferenceMeasurement("width", this.referenceWidthMm),
+      heightMm: this._promptReferenceMeasurement("height", this.referenceHeightMm),
+    };
+  }
+
+  _promptReferenceMeasurement(label, defaultMm) {
+    const input = this._askReferenceMeasurement(
+      `Enter the reference object ${label}. Include units: mm, cm, or in.`,
+      `${this._formatMillimeters(defaultMm)} mm`,
+    );
+
+    if (input === null) {
+      throw new Error("Reference dimensions are required.");
+    }
+
+    return this._measurementToMillimeters(input, label);
+  }
+
+  _askReferenceMeasurement(message, defaultValue) {
+    if (typeof window.prompt !== "function") {
+      return defaultValue;
+    }
+
+    return window.prompt(message, defaultValue);
+  }
+
+  _measurementToMillimeters(input, label) {
+    const match = String(input).match(
+      /^\s*([+-]?(?:\d+\.?\d*|\.\d+))\s*(mm|millimeters?|cm|centimeters?|in|inch|inches|")?\s*$/i,
+    );
+
+    if (!match) {
+      throw new Error(
+        `Reference ${label} must be a positive number in mm, cm, or in.`,
+      );
+    }
+
+    const value = Number.parseFloat(match[1]);
+    const unit = (match[2] || "mm").toLowerCase();
+    let millimeters = value;
+
+    if (unit === "cm" || unit.startsWith("centimeter")) {
+      millimeters = value * 10;
+    } else if (
+      unit === "in" ||
+      unit === '"' ||
+      unit === "inch" ||
+      unit === "inches"
+    ) {
+      millimeters = value * 25.4;
+    }
+
+    if (!Number.isFinite(millimeters) || millimeters <= 0) {
+      throw new Error(
+        `Reference ${label} must be a positive number in mm, cm, or in.`,
+      );
+    }
+
+    return millimeters;
   }
 
   async _fetchJson(url, options, fallbackMessage) {
@@ -509,6 +585,10 @@ export class UploadablePalette extends HTMLElement {
     const value = Number.parseFloat(this.getAttribute(name));
 
     return Number.isFinite(value) ? value : fallback;
+  }
+
+  _formatMillimeters(value) {
+    return String(Number(value.toFixed(4)));
   }
 
   _basename(fileName) {

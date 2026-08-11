@@ -73,11 +73,63 @@ function svgResponse(svgText, options = {}) {
   });
 }
 
-function stubReferencePrompts(palette, width = "215.9 mm", height = "279.4 mm") {
-  return vi
-    .spyOn(palette, "_askReferenceMeasurement")
-    .mockReturnValueOnce(width)
-    .mockReturnValueOnce(height);
+function referenceControls(palette) {
+  return {
+    modal: palette.shadowRoot.querySelector("#referenceDimensionModal"),
+    form: palette.shadowRoot.querySelector("#referenceDimensionForm"),
+    widthInput: palette.shadowRoot.querySelector("#referenceWidthInput"),
+    heightInput: palette.shadowRoot.querySelector("#referenceHeightInput"),
+    unitSelect: palette.shadowRoot.querySelector("#referenceUnitSelect"),
+    error: palette.shadowRoot.querySelector("#referenceDimensionError"),
+    cancelButton: palette.shadowRoot.querySelector("#referenceCancelButton"),
+  };
+}
+
+async function waitForReferenceModal(palette) {
+  const controls = referenceControls(palette);
+
+  for (let index = 0; index < 20; index += 1) {
+    await nextFrame();
+
+    if (!controls.modal.hidden) {
+      return controls;
+    }
+  }
+
+  throw new Error("Reference dimension modal did not open.");
+}
+
+async function submitReferenceDimensions(
+  palette,
+  { width = "215.9", height = "279.4", unit = "mm" } = {},
+) {
+  const controls = await waitForReferenceModal(palette);
+  controls.widthInput.value = String(width);
+  controls.heightInput.value = String(height);
+  controls.unitSelect.value = unit;
+  controls.form.dispatchEvent(
+    new Event("submit", {
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+
+  return controls;
+}
+
+async function cancelReferenceDimensions(palette) {
+  const controls = await waitForReferenceModal(palette);
+  controls.cancelButton.click();
+
+  return controls;
+}
+
+async function uploadFilesWithReference(palette, files, referenceDimensions) {
+  const uploads = waitForUploadEvents(palette, files.length);
+  dispatchFiles(palette, files);
+  await submitReferenceDimensions(palette, referenceDimensions);
+
+  return uploads;
 }
 
 function waitForUploadEvents(palette, count) {
@@ -143,6 +195,8 @@ async function setQuantity(control, value) {
 describe("UploadablePalette", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -158,11 +212,39 @@ describe("UploadablePalette", () => {
   test("renders the SVG upload input", () => {
     const { palette } = createFixture();
     const input = palette.shadowRoot.querySelector("#svgPieceUpload");
+    const controls = referenceControls(palette);
 
     expect(input).not.toBeNull();
     expect(input.accept).toContain(".svg");
     expect(input.accept).toContain("image/*");
     expect(input.multiple).toBe(true);
+    expect(controls.modal.hidden).toBe(true);
+    expect(controls.widthInput).not.toBeNull();
+    expect(controls.heightInput).not.toBeNull();
+    expect(controls.unitSelect).not.toBeNull();
+  });
+
+  test("logs when window.prompt is unavailable", () => {
+    const { palette } = createFixture();
+    const originalPrompt = window.prompt;
+
+    try {
+      Object.defineProperty(window, "prompt", {
+        value: undefined,
+        configurable: true,
+      });
+
+      palette._logReferenceDimensionPromptMode();
+
+      expect(console.warn).toHaveBeenCalledWith(
+        "UploadablePalette: window.prompt is unavailable; using the built-in reference dimension modal.",
+      );
+    } finally {
+      Object.defineProperty(window, "prompt", {
+        value: originalPrompt,
+        configurable: true,
+      });
+    }
   });
 
   test("uses board as the default target board id", () => {
@@ -182,7 +264,6 @@ describe("UploadablePalette", () => {
 
   test("adds an uploaded SVG as a piece quantity control", async () => {
     const { palette } = createFixture();
-    const promptMock = stubReferencePrompts(palette);
 
     const [event] = await uploadFiles(palette, [createSvgFile()]);
     const control = event.detail.control;
@@ -194,12 +275,11 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.getAttribute("value")).toBe("0");
     expect(palette.shadowRoot.getElementById(control.id)).toBe(control);
-    expect(promptMock).not.toHaveBeenCalled();
+    expect(referenceControls(palette).modal.hidden).toBe(true);
   });
 
   test("converts an uploaded photo into an SVG piece quantity control", async () => {
     const { palette } = createFixture();
-    const promptMock = stubReferencePrompts(palette, "8.5 in", "11 in");
 
     const fetchMock = vi
       .fn()
@@ -219,7 +299,26 @@ describe("UploadablePalette", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const [event] = await uploadFiles(palette, [createImageFile()]);
+    const uploads = waitForUploadEvents(palette, 1);
+    dispatchFiles(palette, [createImageFile()]);
+    const controls = await waitForReferenceModal(palette);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(controls.widthInput.value).toBe("215.9");
+    expect(controls.heightInput.value).toBe("279.4");
+    expect(controls.unitSelect.value).toBe("mm");
+
+    controls.widthInput.value = "8.5";
+    controls.heightInput.value = "11";
+    controls.unitSelect.value = "in";
+    controls.form.dispatchEvent(
+      new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    const [event] = await uploads;
     const control = event.detail.control;
     const [uploadUrl, uploadOptions] = fetchMock.mock.calls[0];
 
@@ -239,13 +338,11 @@ describe("UploadablePalette", () => {
     );
     expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("215.9");
     expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("279.4");
-    expect(promptMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(
-      promptMock.mock.invocationCallOrder[0],
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(console.info).toHaveBeenCalledWith(
+      "UploadablePalette: using the built-in reference dimension modal instead of window.prompt for reference dimensions.",
     );
-    expect(promptMock.mock.invocationCallOrder[1]).toBeLessThan(
-      fetchMock.mock.invocationCallOrder[1],
-    );
+    expect(controls.modal.hidden).toBe(true);
     expect(control.id).toBe("uploaded-front-bodice-0-control");
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");
@@ -254,7 +351,6 @@ describe("UploadablePalette", () => {
 
   test("uses the photo-upload-endpoint attribute for photo conversions", async () => {
     const { palette } = createFixture();
-    stubReferencePrompts(palette);
     palette.setAttribute("photo-upload-endpoint", "/custom-upload.php");
 
     const fetchMock = vi
@@ -275,14 +371,13 @@ describe("UploadablePalette", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    await uploadFiles(palette, [createImageFile()]);
+    await uploadFilesWithReference(palette, [createImageFile()]);
 
     expect(fetchMock.mock.calls[0][0]).toBe("/custom-upload.php");
   });
 
   test("uses OpenCV endpoint and reference size attributes for photo conversions", async () => {
     const { palette } = createFixture();
-    const promptMock = stubReferencePrompts(palette, "10 cm", "2 in");
     palette.setAttribute("opencv-endpoint", "/custom-opencv");
     palette.setAttribute("reference-width-mm", "100");
     palette.setAttribute("reference-height-mm", "200");
@@ -304,21 +399,31 @@ describe("UploadablePalette", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    await uploadFiles(palette, [createImageFile()]);
+    const uploads = waitForUploadEvents(palette, 1);
+    dispatchFiles(palette, [createImageFile()]);
+    const controls = await waitForReferenceModal(palette);
+
+    expect(controls.widthInput.value).toBe("100");
+    expect(controls.heightInput.value).toBe("200");
+    expect(controls.unitSelect.value).toBe("mm");
+
+    controls.widthInput.value = "10";
+    controls.heightInput.value = "20";
+    controls.unitSelect.value = "cm";
+    controls.form.dispatchEvent(
+      new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    await uploads;
 
     const opencvUrl = new URL(fetchMock.mock.calls[1][0]);
     expect(opencvUrl.pathname).toBe("/custom-opencv");
     expect(opencvUrl.searchParams.get("url")).toBe("https://example.com/photo.jpg");
     expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("100");
-    expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("50.8");
-    expect(promptMock.mock.calls[0]).toEqual([
-      "Enter the reference object width. Include units: mm, cm, or in.",
-      "100 mm",
-    ]);
-    expect(promptMock.mock.calls[1]).toEqual([
-      "Enter the reference object height. Include units: mm, cm, or in.",
-      "200 mm",
-    ]);
+    expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("200");
   });
 
   test("retargets existing and uploaded controls when the board attribute changes", async () => {
@@ -614,7 +719,6 @@ describe("UploadablePalette", () => {
 
   test("accepts JSON-wrapped OpenCV SVG responses", async () => {
     const { palette } = createFixture();
-    stubReferencePrompts(palette);
 
     const fetchMock = vi
       .fn()
@@ -638,14 +742,13 @@ describe("UploadablePalette", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const [event] = await uploadFiles(palette, [createImageFile()]);
+    const [event] = await uploadFilesWithReference(palette, [createImageFile()]);
 
     expect(event.detail.control.querySelector("#front-path")).not.toBeNull();
   });
 
   test("reports OpenCV conversion failures without adding a control", async () => {
     const { palette } = createFixture();
-    stubReferencePrompts(palette);
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
     vi.stubGlobal(
@@ -677,6 +780,7 @@ describe("UploadablePalette", () => {
     );
 
     dispatchFiles(palette, [createImageFile()]);
+    await submitReferenceDimensions(palette);
     const event = await errorEvent;
 
     expect(event.detail.failures[0].error.message).toBe(
@@ -687,7 +791,6 @@ describe("UploadablePalette", () => {
 
   test("reports empty OpenCV SVG responses without adding a control", async () => {
     const { palette } = createFixture();
-    stubReferencePrompts(palette);
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
     vi.stubGlobal(
@@ -710,6 +813,7 @@ describe("UploadablePalette", () => {
     );
 
     dispatchFiles(palette, [createImageFile()]);
+    await submitReferenceDimensions(palette);
     const event = await errorEvent;
 
     expect(event.detail.failures[0].error.message).toBe(
@@ -720,7 +824,6 @@ describe("UploadablePalette", () => {
 
   test("uses the fallback message for non-JSON OpenCV failures", async () => {
     const { palette } = createFixture();
-    stubReferencePrompts(palette);
     const errorEvent = waitForEvent(palette, "svg-upload-error");
 
     vi.stubGlobal(
@@ -750,6 +853,7 @@ describe("UploadablePalette", () => {
     );
 
     dispatchFiles(palette, [createImageFile()]);
+    await submitReferenceDimensions(palette);
     const event = await errorEvent;
 
     expect(event.detail.failures[0].error.message).toBe(
@@ -761,7 +865,6 @@ describe("UploadablePalette", () => {
   test("reports cancelled reference dimension prompts without calling OpenCV", async () => {
     const { palette } = createFixture();
     const errorEvent = waitForEvent(palette, "svg-upload-error");
-    const promptMock = stubReferencePrompts(palette, null);
 
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({
@@ -779,45 +882,66 @@ describe("UploadablePalette", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     dispatchFiles(palette, [createImageFile()]);
+    const controls = await cancelReferenceDimensions(palette);
     const event = await errorEvent;
 
     expect(event.detail.failures[0].error.message).toBe(
       "Reference dimensions are required.",
     );
-    expect(promptMock).toHaveBeenCalledTimes(1);
+    expect(controls.modal.hidden).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
   });
 
-  test("reports invalid reference dimension prompts without calling OpenCV", async () => {
+  test("keeps the reference dimension modal open after invalid input", async () => {
     const { palette } = createFixture();
-    const errorEvent = waitForEvent(palette, "svg-upload-error");
-    const promptMock = stubReferencePrompts(palette, "wide");
 
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({
-        files: [
-          {
-            status: "success",
-            original_name: "front-bodice.jpg",
-            filename: "saved-front-bodice.jpg",
-            url: "/uploads/saved-front-bodice.jpg",
-          },
-        ],
-      }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "front-bodice.jpg",
+              filename: "saved-front-bodice.jpg",
+              url: "/uploads/saved-front-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
 
     vi.stubGlobal("fetch", fetchMock);
 
+    const uploads = waitForUploadEvents(palette, 1);
     dispatchFiles(palette, [createImageFile()]);
-    const event = await errorEvent;
+    const controls = await submitReferenceDimensions(palette, {
+      width: "wide",
+      height: "11",
+      unit: "in",
+    });
 
-    expect(event.detail.failures[0].error.message).toBe(
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(controls.modal.hidden).toBe(false);
+    expect(controls.error.hidden).toBe(false);
+    expect(controls.error.textContent).toBe(
       "Reference width must be a positive number in mm, cm, or in.",
     );
-    expect(promptMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+
+    controls.widthInput.value = "8.5";
+    controls.form.dispatchEvent(
+      new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    const [event] = await uploads;
+
+    expect(event.detail.control.querySelector("#front-path")).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(controls.modal.hidden).toBe(true);
   });
 
   test("throws for malformed SVG documents", () => {

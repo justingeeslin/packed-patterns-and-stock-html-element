@@ -92,6 +92,9 @@ export class UploadablePalette extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._uploadCounter = 0;
+    this._referenceDialogRequest = null;
+    this._lastFocusedElement = null;
+    this._promptAvailabilityLogged = false;
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -156,6 +159,92 @@ export class UploadablePalette extends HTMLElement {
         .error {
           color: #b00020;
         }
+
+        .reference-modal[hidden] {
+          display: none;
+        }
+
+        .reference-modal {
+          align-items: center;
+          background: rgba(0, 0, 0, 0.42);
+          bottom: 0;
+          display: flex;
+          justify-content: center;
+          left: 0;
+          padding: 24px;
+          position: fixed;
+          right: 0;
+          top: 0;
+          z-index: 1000;
+        }
+
+        .reference-dialog {
+          background: white;
+          border: 1px solid #d7dce2;
+          border-radius: 8px;
+          box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+          color: #1b1f24;
+          display: grid;
+          gap: 16px;
+          max-width: min(420px, 100%);
+          padding: 20px;
+          width: 100%;
+        }
+
+        .reference-dialog h2 {
+          font-size: 1.1rem;
+          line-height: 1.2;
+          margin: 0;
+        }
+
+        .reference-fields {
+          display: grid;
+          gap: 12px;
+        }
+
+        .reference-field {
+          display: grid;
+          gap: 6px;
+          font-size: 0.88rem;
+        }
+
+        .reference-field input,
+        .reference-field select {
+          border: 1px solid #b8c0cc;
+          border-radius: 6px;
+          box-sizing: border-box;
+          font: inherit;
+          min-height: 38px;
+          padding: 8px 10px;
+          width: 100%;
+        }
+
+        .reference-error {
+          color: #b00020;
+          font-size: 0.85rem;
+          margin: 0;
+        }
+
+        .reference-actions {
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+        }
+
+        .reference-actions button {
+          border: 1px solid #aeb7c2;
+          border-radius: 6px;
+          cursor: pointer;
+          font: inherit;
+          min-height: 36px;
+          padding: 8px 12px;
+        }
+
+        .reference-actions button[type="submit"] {
+          background: #0078d4;
+          border-color: #0078d4;
+          color: white;
+        }
       </style>
 
       <section class="palette">
@@ -168,6 +257,40 @@ export class UploadablePalette extends HTMLElement {
         </div>
         <p class="status" role="status" aria-live="polite"></p>
         <div class="controls">${DEFAULT_CONTROLS}</div>
+        <div class="reference-modal" id="referenceDimensionModal" hidden>
+          <form
+            class="reference-dialog"
+            id="referenceDimensionForm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="referenceDimensionTitle"
+          >
+            <h2 id="referenceDimensionTitle">Reference Dimensions</h2>
+            <div class="reference-fields">
+              <label class="reference-field">
+                Width
+                <input id="referenceWidthInput" inputmode="decimal" required>
+              </label>
+              <label class="reference-field">
+                Height
+                <input id="referenceHeightInput" inputmode="decimal" required>
+              </label>
+              <label class="reference-field">
+                Unit
+                <select id="referenceUnitSelect">
+                  <option value="mm">Millimeters</option>
+                  <option value="cm">Centimeters</option>
+                  <option value="in">Inches</option>
+                </select>
+              </label>
+            </div>
+            <p class="reference-error" id="referenceDimensionError" role="alert" hidden></p>
+            <div class="reference-actions">
+              <button type="button" id="referenceCancelButton">Cancel</button>
+              <button type="submit">Continue</button>
+            </div>
+          </form>
+        </div>
       </section>
     `;
   }
@@ -175,10 +298,18 @@ export class UploadablePalette extends HTMLElement {
   connectedCallback() {
     this._syncBoardAttributes();
     this.fileInput.addEventListener("change", this._onFileInputChange);
+    this.referenceForm.addEventListener("submit", this._onReferenceFormSubmit);
+    this.referenceCancelButton.addEventListener("click", this._onReferenceCancel);
   }
 
   disconnectedCallback() {
     this.fileInput.removeEventListener("change", this._onFileInputChange);
+    this.referenceForm.removeEventListener("submit", this._onReferenceFormSubmit);
+    this.referenceCancelButton.removeEventListener(
+      "click",
+      this._onReferenceCancel,
+    );
+    this._rejectReferenceDialog(new Error("Reference dimensions are required."));
   }
 
   attributeChangedCallback() {
@@ -201,6 +332,34 @@ export class UploadablePalette extends HTMLElement {
 
   get statusEl() {
     return this.shadowRoot.querySelector(".status");
+  }
+
+  get referenceModalEl() {
+    return this.shadowRoot.querySelector("#referenceDimensionModal");
+  }
+
+  get referenceForm() {
+    return this.shadowRoot.querySelector("#referenceDimensionForm");
+  }
+
+  get referenceWidthInput() {
+    return this.shadowRoot.querySelector("#referenceWidthInput");
+  }
+
+  get referenceHeightInput() {
+    return this.shadowRoot.querySelector("#referenceHeightInput");
+  }
+
+  get referenceUnitSelect() {
+    return this.shadowRoot.querySelector("#referenceUnitSelect");
+  }
+
+  get referenceErrorEl() {
+    return this.shadowRoot.querySelector("#referenceDimensionError");
+  }
+
+  get referenceCancelButton() {
+    return this.shadowRoot.querySelector("#referenceCancelButton");
   }
 
   get photoUploadEndpoint() {
@@ -346,7 +505,10 @@ export class UploadablePalette extends HTMLElement {
       throw new Error("Upload response did not include a file URL.");
     }
 
-    const referenceDimensions = this._promptForReferenceDimensions();
+    this._setStatus("Enter reference dimensions to continue.");
+    const referenceDimensions = await this._requestReferenceDimensions();
+    this._setStatus("Converting uploaded image...");
+
     const svgText = await this._fetchSvgText(
       this._opencvSvgUrl(uploadedUrl, referenceDimensions),
       "OpenCV conversion failed.",
@@ -388,32 +550,106 @@ export class UploadablePalette extends HTMLElement {
     return url.href;
   }
 
-  _promptForReferenceDimensions() {
+  _requestReferenceDimensions() {
+    if (this._referenceDialogRequest) {
+      throw new Error("Reference dimensions are already being requested.");
+    }
+
+    this._logReferenceDimensionPromptMode();
+    this._openReferenceDialog();
+
+    return new Promise((resolve, reject) => {
+      this._referenceDialogRequest = { resolve, reject };
+    });
+  }
+
+  _openReferenceDialog() {
+    this.referenceWidthInput.value = this._formatMillimeters(
+      this.referenceWidthMm,
+    );
+    this.referenceHeightInput.value = this._formatMillimeters(
+      this.referenceHeightMm,
+    );
+    this.referenceUnitSelect.value = "mm";
+    this._setReferenceDialogError("");
+    this._lastFocusedElement = this.shadowRoot.activeElement || document.activeElement;
+    this.referenceModalEl.hidden = false;
+    this.referenceWidthInput.focus();
+  }
+
+  _onReferenceFormSubmit = (event) => {
+    event.preventDefault();
+
+    try {
+      this._resolveReferenceDialog(this._readReferenceDimensions());
+    } catch (error) {
+      this._setReferenceDialogError(error.message);
+    }
+  };
+
+  _onReferenceCancel = () => {
+    this._rejectReferenceDialog(new Error("Reference dimensions are required."));
+  };
+
+  _readReferenceDimensions() {
+    const unit = this.referenceUnitSelect.value;
+
     return {
-      widthMm: this._promptReferenceMeasurement("width", this.referenceWidthMm),
-      heightMm: this._promptReferenceMeasurement("height", this.referenceHeightMm),
+      widthMm: this._measurementToMillimeters(
+        `${this.referenceWidthInput.value} ${unit}`,
+        "width",
+      ),
+      heightMm: this._measurementToMillimeters(
+        `${this.referenceHeightInput.value} ${unit}`,
+        "height",
+      ),
     };
   }
 
-  _promptReferenceMeasurement(label, defaultMm) {
-    const input = this._askReferenceMeasurement(
-      `Enter the reference object ${label}. Include units: mm, cm, or in.`,
-      `${this._formatMillimeters(defaultMm)} mm`,
-    );
+  _resolveReferenceDialog(referenceDimensions) {
+    const request = this._referenceDialogRequest;
+    if (!request) return;
 
-    if (input === null) {
-      throw new Error("Reference dimensions are required.");
-    }
-
-    return this._measurementToMillimeters(input, label);
+    this._closeReferenceDialog();
+    request.resolve(referenceDimensions);
   }
 
-  _askReferenceMeasurement(message, defaultValue) {
+  _rejectReferenceDialog(error) {
+    const request = this._referenceDialogRequest;
+    if (!request) return;
+
+    this._closeReferenceDialog();
+    request.reject(error);
+  }
+
+  _closeReferenceDialog() {
+    this.referenceModalEl.hidden = true;
+    this._setReferenceDialogError("");
+    this._referenceDialogRequest = null;
+    this._lastFocusedElement?.focus?.();
+    this._lastFocusedElement = null;
+  }
+
+  _setReferenceDialogError(message) {
+    this.referenceErrorEl.textContent = message;
+    this.referenceErrorEl.hidden = message === "";
+  }
+
+  _logReferenceDimensionPromptMode() {
+    if (this._promptAvailabilityLogged) return;
+
+    this._promptAvailabilityLogged = true;
+
     if (typeof window.prompt !== "function") {
-      return defaultValue;
+      console.warn(
+        "UploadablePalette: window.prompt is unavailable; using the built-in reference dimension modal.",
+      );
+      return;
     }
 
-    return window.prompt(message, defaultValue);
+    console.info(
+      "UploadablePalette: using the built-in reference dimension modal instead of window.prompt for reference dimensions.",
+    );
   }
 
   _measurementToMillimeters(input, label) {

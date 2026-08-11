@@ -38,10 +38,12 @@ The OpenCV request is sent as
 `?url=...&reference_width_mm=215.9&reference_height_mm=279.4`, and the returned
 SVG is added through the same path as a directly uploaded SVG.
 
-After a non-SVG file is uploaded, the user is prompted for the reference object
-width and height before the OpenCV request is sent. Entries may use `mm`, `cm`,
-or `in`; bare numbers are treated as millimeters. The component converts those
-values to millimeters for the endpoint.
+After a non-SVG file is uploaded, the component opens an HTML modal for the
+reference object width, height, and unit before the OpenCV request is sent.
+Units may be millimeters, centimeters, or inches. The component converts those
+values to millimeters for the endpoint. It also logs when the native
+`window.prompt` API is unavailable, since the modal is used instead of native
+browser prompts.
 
 ## Local irregular stock worker test
 

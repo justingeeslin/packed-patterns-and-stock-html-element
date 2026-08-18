@@ -40,7 +40,9 @@ and the returned SVG is added through the same path as a directly uploaded SVG.
 
 JSON OpenCV responses may include `debug_image_urls`, a list of snapshots from
 the CV pipeline. When present, the generated `<piece-quantity-control>` shows a
-CV Debug button that opens a troubleshooting viewer with those images.
+CV Debug button that opens a troubleshooting viewer with those images. Failed
+OpenCV responses can include the same field; in that case the upload error
+shows a Show Debug Images button without adding a new pattern control.
 
 After a non-SVG file is uploaded, the component opens an HTML modal for the
 reference object width, height, and unit before the OpenCV request is sent.

@@ -93,7 +93,9 @@ export class UploadablePalette extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._uploadCounter = 0;
     this._referenceDialogRequest = null;
+    this._failureDebugImages = [];
     this._lastFocusedElement = null;
+    this._lastFailureDebugFocusedElement = null;
     this._promptAvailabilityLogged = false;
 
     this.shadowRoot.innerHTML = `
@@ -158,6 +160,144 @@ export class UploadablePalette extends HTMLElement {
 
         .error {
           color: #b00020;
+        }
+
+        .status-row {
+          align-items: center;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          min-height: 1.2em;
+        }
+
+        .failure-debug-button {
+          background: #f7f8fa;
+          border: 1px solid #aeb7c2;
+          border-radius: 6px;
+          color: #1b1f24;
+          cursor: pointer;
+          font: inherit;
+          font-size: 0.82rem;
+          min-height: 32px;
+          padding: 6px 10px;
+        }
+
+        .failure-debug-button:hover {
+          background: #e9edf3;
+        }
+
+        .failure-debug-button[hidden] {
+          display: none;
+        }
+
+        .failure-debug-modal[hidden] {
+          display: none;
+        }
+
+        .failure-debug-modal {
+          align-items: center;
+          background: rgba(0, 0, 0, 0.48);
+          bottom: 0;
+          display: flex;
+          justify-content: center;
+          left: 0;
+          padding: 20px;
+          position: fixed;
+          right: 0;
+          top: 0;
+          z-index: 1001;
+        }
+
+        .failure-debug-dialog {
+          background: Canvas;
+          border: 1px solid #cfd8e3;
+          border-radius: 8px;
+          box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+          color: CanvasText;
+          display: grid;
+          gap: 12px;
+          max-height: min(760px, calc(100vh - 32px));
+          max-width: min(920px, calc(100vw - 32px));
+          overflow: auto;
+          padding: 16px;
+          width: 100%;
+        }
+
+        .failure-debug-header {
+          align-items: center;
+          display: flex;
+          gap: 12px;
+          justify-content: space-between;
+        }
+
+        .failure-debug-title {
+          font-size: 1rem;
+          line-height: 1.2;
+          margin: 0;
+        }
+
+        .failure-debug-close {
+          background: transparent;
+          border: 1px solid #aeb7c2;
+          border-radius: 6px;
+          color: inherit;
+          cursor: pointer;
+          font: inherit;
+          min-height: 34px;
+          min-width: 36px;
+          padding: 6px 10px;
+        }
+
+        .failure-debug-list {
+          display: grid;
+          gap: 12px;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .failure-debug-figure {
+          background: #f7f8fa;
+          border: 1px solid #d8dee7;
+          border-radius: 8px;
+          display: grid;
+          margin: 0;
+          min-width: 0;
+          overflow: hidden;
+        }
+
+        .failure-debug-image-link {
+          align-items: center;
+          aspect-ratio: 4 / 3;
+          background: white;
+          display: flex;
+          justify-content: center;
+        }
+
+        .failure-debug-image-link img {
+          display: block;
+          height: 100%;
+          object-fit: contain;
+          width: 100%;
+        }
+
+        .failure-debug-caption {
+          align-items: center;
+          color: #1b1f24;
+          display: flex;
+          font-size: 0.82rem;
+          gap: 8px;
+          justify-content: space-between;
+          min-width: 0;
+          padding: 8px;
+        }
+
+        .failure-debug-caption span {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .failure-debug-caption a {
+          color: #005ea6;
+          flex: 0 0 auto;
         }
 
         .reference-modal[hidden] {
@@ -278,8 +418,31 @@ export class UploadablePalette extends HTMLElement {
             <label class="upload-button" for="svgPieceUpload">Add / Upload</label>
           </form>
         </div>
-        <p class="status" role="status" aria-live="polite"></p>
+        <div class="status-row">
+          <p class="status" role="status" aria-live="polite"></p>
+          <button
+            class="failure-debug-button"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            hidden
+          >Show Debug Images</button>
+        </div>
         <div class="controls">${DEFAULT_CONTROLS}</div>
+        <div class="failure-debug-modal" id="failureDebugModal" hidden>
+          <section
+            class="failure-debug-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="failureDebugTitle"
+          >
+            <div class="failure-debug-header">
+              <h2 class="failure-debug-title" id="failureDebugTitle">OpenCV Debug Images</h2>
+              <button class="failure-debug-close" type="button" aria-label="Close debug images">Close</button>
+            </div>
+            <div class="failure-debug-list"></div>
+          </section>
+        </div>
         <div class="reference-modal" id="referenceDimensionModal" hidden>
           <form
             class="reference-dialog"
@@ -326,6 +489,20 @@ export class UploadablePalette extends HTMLElement {
     this.fileInput.addEventListener("change", this._onFileInputChange);
     this.referenceForm.addEventListener("submit", this._onReferenceFormSubmit);
     this.referenceCancelButton.addEventListener("click", this._onReferenceCancel);
+    this.failureDebugButton.addEventListener(
+      "click",
+      this._onFailureDebugButtonClick,
+    );
+    this.failureDebugCloseButton.addEventListener(
+      "click",
+      this._onFailureDebugClose,
+    );
+    this.failureDebugModalEl.addEventListener(
+      "click",
+      this._onFailureDebugModalClick,
+    );
+    this.shadowRoot.addEventListener("keydown", this._onFailureDebugKeydown);
+    this._renderFailureDebugImages();
   }
 
   disconnectedCallback() {
@@ -335,6 +512,19 @@ export class UploadablePalette extends HTMLElement {
       "click",
       this._onReferenceCancel,
     );
+    this.failureDebugButton.removeEventListener(
+      "click",
+      this._onFailureDebugButtonClick,
+    );
+    this.failureDebugCloseButton.removeEventListener(
+      "click",
+      this._onFailureDebugClose,
+    );
+    this.failureDebugModalEl.removeEventListener(
+      "click",
+      this._onFailureDebugModalClick,
+    );
+    this.shadowRoot.removeEventListener("keydown", this._onFailureDebugKeydown);
     this._rejectReferenceDialog(new Error("Reference dimensions are required."));
   }
 
@@ -358,6 +548,22 @@ export class UploadablePalette extends HTMLElement {
 
   get statusEl() {
     return this.shadowRoot.querySelector(".status");
+  }
+
+  get failureDebugButton() {
+    return this.shadowRoot.querySelector(".failure-debug-button");
+  }
+
+  get failureDebugModalEl() {
+    return this.shadowRoot.querySelector("#failureDebugModal");
+  }
+
+  get failureDebugCloseButton() {
+    return this.shadowRoot.querySelector(".failure-debug-close");
+  }
+
+  get failureDebugListEl() {
+    return this.shadowRoot.querySelector(".failure-debug-list");
   }
 
   get referenceModalEl() {
@@ -418,6 +624,7 @@ export class UploadablePalette extends HTMLElement {
     if (files.length === 0) return;
 
     const fileLabel = this._statusFileLabel(files);
+    this._setFailureDebugImages([]);
     this._setStatus(`Uploading ${files.length} ${fileLabel}${files.length === 1 ? "" : "s"}...`);
 
     const failures = [];
@@ -438,13 +645,16 @@ export class UploadablePalette extends HTMLElement {
     input.value = "";
 
     if (failures.length > 0) {
+      const debugImages = this._debugImagesFromFailures(failures);
+
+      this._setFailureDebugImages(debugImages);
       this._setStatus(
         `${failures.length} ${fileLabel}${failures.length === 1 ? "" : "s"} could not be uploaded.`,
         true,
       );
       this.dispatchEvent(
         new CustomEvent("svg-upload-error", {
-          detail: { failures },
+          detail: { failures, debugImages },
           bubbles: true,
           composed: true,
         }),
@@ -452,6 +662,7 @@ export class UploadablePalette extends HTMLElement {
       return;
     }
 
+    this._setFailureDebugImages([]);
     this._setStatus("");
   };
 
@@ -563,7 +774,10 @@ export class UploadablePalette extends HTMLElement {
     );
 
     if (typeof svgResult.svgText !== "string" || svgResult.svgText.trim() === "") {
-      throw new Error("OpenCV response did not include an SVG.");
+      throw this._errorWithDebugImages(
+        "OpenCV response did not include an SVG.",
+        svgResult.debugImages,
+      );
     }
 
     return svgResult;
@@ -641,6 +855,27 @@ export class UploadablePalette extends HTMLElement {
     this._rejectReferenceDialog(new Error("Reference dimensions are required."));
   };
 
+  _onFailureDebugButtonClick = () => {
+    this._openFailureDebugModal();
+  };
+
+  _onFailureDebugClose = () => {
+    this._closeFailureDebugModal();
+  };
+
+  _onFailureDebugModalClick = (event) => {
+    if (event.target === this.failureDebugModalEl) {
+      this._closeFailureDebugModal();
+    }
+  };
+
+  _onFailureDebugKeydown = (event) => {
+    if (event.key === "Escape" && !this.failureDebugModalEl.hidden) {
+      event.stopPropagation();
+      this._closeFailureDebugModal();
+    }
+  };
+
   _readReferenceDimensions() {
     const unit = this.referenceUnitSelect.value;
 
@@ -695,6 +930,100 @@ export class UploadablePalette extends HTMLElement {
   _setReferenceDialogError(message) {
     this.referenceErrorEl.textContent = message;
     this.referenceErrorEl.hidden = message === "";
+  }
+
+  _setFailureDebugImages(images) {
+    this._failureDebugImages = this._normalizeDebugImages(images);
+    this._renderFailureDebugImages();
+  }
+
+  _renderFailureDebugImages() {
+    if (!this.failureDebugButton || !this.failureDebugListEl) return;
+
+    const images = this._failureDebugImages;
+    const hasImages = images.length > 0;
+
+    this.failureDebugButton.hidden = !hasImages;
+    this.failureDebugButton.disabled = !hasImages;
+    this.failureDebugButton.textContent =
+      images.length > 1
+        ? `Show Debug Images (${images.length})`
+        : "Show Debug Image";
+    this.failureDebugButton.setAttribute(
+      "aria-label",
+      "Show OpenCV debug images for the failed upload",
+    );
+
+    if (!hasImages) {
+      this._closeFailureDebugModal({ restoreFocus: false });
+      this.failureDebugListEl.replaceChildren();
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    images.forEach((image) => {
+      const figure = document.createElement("figure");
+      figure.className = "failure-debug-figure";
+
+      const link = document.createElement("a");
+      link.className = "failure-debug-image-link";
+      link.href = image.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+
+      const img = document.createElement("img");
+      img.src = image.url;
+      img.alt = image.name;
+      img.loading = "lazy";
+
+      link.appendChild(img);
+
+      const caption = document.createElement("figcaption");
+      caption.className = "failure-debug-caption";
+
+      const name = document.createElement("span");
+      name.textContent = image.name;
+
+      const openLink = document.createElement("a");
+      openLink.href = image.url;
+      openLink.target = "_blank";
+      openLink.rel = "noopener noreferrer";
+      openLink.textContent = "Open";
+
+      caption.append(name, openLink);
+      figure.append(link, caption);
+      fragment.appendChild(figure);
+    });
+
+    this.failureDebugListEl.replaceChildren(fragment);
+  }
+
+  _openFailureDebugModal() {
+    if (this._failureDebugImages.length === 0) return;
+
+    this._lastFailureDebugFocusedElement =
+      this.shadowRoot.activeElement || document.activeElement;
+    this.failureDebugModalEl.hidden = false;
+    this.failureDebugButton.setAttribute("aria-expanded", "true");
+    this.failureDebugCloseButton.focus();
+  }
+
+  _closeFailureDebugModal({ restoreFocus = true } = {}) {
+    if (!this.failureDebugModalEl || !this.failureDebugButton) return;
+
+    this.failureDebugModalEl.hidden = true;
+    this.failureDebugButton.setAttribute("aria-expanded", "false");
+
+    if (
+      restoreFocus &&
+      this._lastFailureDebugFocusedElement &&
+      document.contains(this)
+    ) {
+      this._lastFailureDebugFocusedElement.focus?.();
+    }
+
+    this._lastFailureDebugFocusedElement = null;
   }
 
   _logReferenceDimensionPromptMode() {
@@ -777,7 +1106,7 @@ export class UploadablePalette extends HTMLElement {
     const text = await response.text();
 
     if (!response.ok) {
-      throw new Error(this._responseErrorMessage(text) || fallbackMessage);
+      throw this._openCvErrorFromResponseBody(text, fallbackMessage);
     }
 
     return this._opencvResultFromResponseBody(text);
@@ -817,23 +1146,33 @@ export class UploadablePalette extends HTMLElement {
       [];
 
     if (Array.isArray(debugImages)) {
-      return debugImages;
+      return this._normalizeDebugImages(debugImages);
     }
 
     if (debugImages && typeof debugImages === "object") {
-      return Object.entries(debugImages).map(([name, image]) => {
-        if (typeof image === "string") {
-          return { name, url: image };
-        }
+      return this._normalizeDebugImages(
+        Object.entries(debugImages).map(([name, image]) => {
+          if (typeof image === "string") {
+            return { name, url: image };
+          }
 
-        return {
-          ...image,
-          name: image?.name || name,
-        };
-      });
+          return {
+            ...image,
+            name: image?.name || name,
+          };
+        }),
+      );
     }
 
     return [];
+  }
+
+  _debugImagesFromFailures(failures) {
+    return this._normalizeDebugImages(
+      failures.flatMap(({ error }) =>
+        Array.isArray(error?.debugImages) ? error.debugImages : [],
+      ),
+    );
   }
 
   _normalizeSvgResult(result) {
@@ -846,10 +1185,88 @@ export class UploadablePalette extends HTMLElement {
 
     return {
       svgText: result?.svgText || "",
-      debugImages: Array.isArray(result?.debugImages)
-        ? result.debugImages
-        : [],
+      debugImages: this._normalizeDebugImages(result?.debugImages),
     };
+  }
+
+  _openCvErrorFromResponseBody(text, fallbackMessage) {
+    try {
+      const result = JSON.parse(text);
+
+      return this._errorWithDebugImages(
+        result?.error || result?.message || fallbackMessage,
+        this._debugImagesFromResponse(result),
+      );
+    } catch {
+      return this._errorWithDebugImages(fallbackMessage);
+    }
+  }
+
+  _errorWithDebugImages(message, debugImages = []) {
+    const error = new Error(message);
+    error.debugImages = this._normalizeDebugImages(debugImages);
+
+    return error;
+  }
+
+  _normalizeDebugImages(images) {
+    if (!Array.isArray(images)) return [];
+
+    return images
+      .map((image, index) => this._normalizeDebugImage(image, index))
+      .filter(Boolean);
+  }
+
+  _normalizeDebugImage(image, index) {
+    const source =
+      typeof image === "string"
+        ? { url: image }
+        : image && typeof image === "object"
+          ? image
+          : null;
+
+    if (!source) return null;
+
+    const url = this._safeImageUrl(source.url || source.href || source.src);
+    if (!url) return null;
+
+    const filename = source.filename || this._filenameFromUrl(url);
+    const name =
+      source.name ||
+      source.label ||
+      filename ||
+      `Debug image ${index + 1}`;
+
+    return {
+      name: String(name),
+      filename: filename ? String(filename) : "",
+      mimeType: String(source.mimeType || source.mime_type || ""),
+      url,
+    };
+  }
+
+  _safeImageUrl(value) {
+    if (!value) return "";
+
+    try {
+      const url = new URL(String(value), document.baseURI);
+      const allowedProtocols = ["http:", "https:", "data:", "blob:"];
+
+      return allowedProtocols.includes(url.protocol) ? url.href : "";
+    } catch {
+      return "";
+    }
+  }
+
+  _filenameFromUrl(value) {
+    try {
+      const url = new URL(value, document.baseURI);
+      const filename = url.pathname.split("/").filter(Boolean).pop();
+
+      return filename ? decodeURIComponent(filename) : "";
+    } catch {
+      return "";
+    }
   }
 
   _responseErrorMessage(text) {

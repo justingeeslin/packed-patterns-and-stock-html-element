@@ -102,6 +102,18 @@ function referenceControls(palette) {
   };
 }
 
+function failureDebugControls(palette) {
+  return {
+    button: palette.shadowRoot.querySelector(".failure-debug-button"),
+    modal: palette.shadowRoot.querySelector("#failureDebugModal"),
+    closeButton: palette.shadowRoot.querySelector(".failure-debug-close"),
+    images: () =>
+      Array.from(
+        palette.shadowRoot.querySelectorAll(".failure-debug-figure img"),
+      ),
+  };
+}
+
 async function waitForReferenceModal(palette) {
   const controls = referenceControls(palette);
 
@@ -840,6 +852,7 @@ describe("UploadablePalette", () => {
   test("reports OpenCV conversion failures without adding a control", async () => {
     const { palette } = createFixture();
     const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const debugControls = failureDebugControls(palette);
 
     vi.stubGlobal(
       "fetch",
@@ -876,7 +889,96 @@ describe("UploadablePalette", () => {
     expect(event.detail.failures[0].error.message).toBe(
       "No contour could be detected.",
     );
+    expect(event.detail.debugImages).toEqual([]);
     expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+    expect(debugControls.button.hidden).toBe(true);
+  });
+
+  test("shows OpenCV debug images for conversion failures when available", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const initialControls = palette.shadowRoot.querySelectorAll(
+      "piece-quantity-control",
+    ).length;
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            files: [
+              {
+                status: "success",
+                original_name: "front-bodice.jpg",
+                filename: "saved-front-bodice.jpg",
+                url: "/uploads/saved-front-bodice.jpg",
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse(
+            {
+              error: "No contour could be detected.",
+              debug_image_urls: DEBUG_IMAGE_URLS,
+            },
+            {
+              status: 422,
+            },
+          ),
+        ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    await submitReferenceDimensions(palette);
+    const event = await errorEvent;
+    const debugControls = failureDebugControls(palette);
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "No contour could be detected.",
+    );
+    expect(event.detail.debugImages).toEqual([
+      {
+        name: "imgContours_page",
+        filename: "0_imgContours_page.png",
+        mimeType: "image/png",
+        url: "https://example.com/debug-images/session/0_imgContours_page.png",
+      },
+      {
+        name: "imgWarp",
+        filename: "3_imgWarp.png",
+        mimeType: "image/png",
+        url: "https://example.com/debug-images/session/3_imgWarp.png",
+      },
+    ]);
+    expect(event.detail.failures[0].error.debugImages).toEqual(
+      event.detail.debugImages,
+    );
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+    expect(debugControls.button.hidden).toBe(false);
+    expect(debugControls.button.textContent).toBe("Show Debug Images (2)");
+    expect(
+      palette.shadowRoot.querySelectorAll("piece-quantity-control"),
+    ).toHaveLength(initialControls);
+
+    debugControls.button.click();
+
+    const images = debugControls.images();
+
+    expect(debugControls.modal.hidden).toBe(false);
+    expect(debugControls.button.getAttribute("aria-expanded")).toBe("true");
+    expect(images).toHaveLength(2);
+    expect(images.map((image) => image.alt)).toEqual([
+      "imgContours_page",
+      "imgWarp",
+    ]);
+    expect(images[0].src).toBe(DEBUG_IMAGE_URLS[0].url);
+
+    debugControls.closeButton.click();
+
+    expect(debugControls.modal.hidden).toBe(true);
+    expect(debugControls.button.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("reports empty OpenCV SVG responses without adding a control", async () => {
@@ -910,6 +1012,59 @@ describe("UploadablePalette", () => {
       "OpenCV response did not include an SVG.",
     );
     expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("keeps debug images from empty OpenCV SVG responses", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            files: [
+              {
+                status: "success",
+                original_name: "front-bodice.jpg",
+                filename: "saved-front-bodice.jpg",
+                url: "/uploads/saved-front-bodice.jpg",
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            svg: "",
+            debug_image_urls: {
+              imgThreshold: "/debug-images/session/1_imgThreshold.png",
+            },
+          }),
+        ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    await submitReferenceDimensions(palette);
+    const event = await errorEvent;
+    const debugControls = failureDebugControls(palette);
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "OpenCV response did not include an SVG.",
+    );
+    expect(event.detail.debugImages).toEqual([
+      {
+        name: "imgThreshold",
+        filename: "1_imgThreshold.png",
+        mimeType: "",
+        url: new URL(
+          "/debug-images/session/1_imgThreshold.png",
+          document.baseURI,
+        ).href,
+      },
+    ]);
+    expect(debugControls.button.hidden).toBe(false);
+    expect(debugControls.button.textContent).toBe("Show Debug Image");
   });
 
   test("uses the fallback message for non-JSON OpenCV failures", async () => {

@@ -26,6 +26,21 @@ const SIZELESS_SVG_WITHOUT_VIEWBOX = `
   </svg>
 `;
 
+const DEBUG_IMAGE_URLS = [
+  {
+    name: "imgContours_page",
+    filename: "0_imgContours_page.png",
+    mime_type: "image/png",
+    url: "https://example.com/debug-images/session/0_imgContours_page.png",
+  },
+  {
+    name: "imgWarp",
+    filename: "3_imgWarp.png",
+    mime_type: "image/png",
+    url: "https://example.com/debug-images/session/3_imgWarp.png",
+  },
+];
+
 function createFixture({ board = "board" } = {}) {
   const container = document.createElement("div");
 
@@ -338,6 +353,7 @@ describe("UploadablePalette", () => {
     );
     expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("215.9");
     expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("279.4");
+    expect(opencvUrl.searchParams.get("debug_image_urls")).toBe("1");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(console.info).toHaveBeenCalledWith(
       "UploadablePalette: using the built-in reference dimension modal instead of window.prompt for reference dimensions.",
@@ -424,6 +440,7 @@ describe("UploadablePalette", () => {
     expect(opencvUrl.searchParams.get("url")).toBe("https://example.com/photo.jpg");
     expect(opencvUrl.searchParams.get("reference_width_mm")).toBe("100");
     expect(opencvUrl.searchParams.get("reference_height_mm")).toBe("200");
+    expect(opencvUrl.searchParams.get("debug_image_urls")).toBe("1");
   });
 
   test("retargets existing and uploaded controls when the board attribute changes", async () => {
@@ -745,6 +762,66 @@ describe("UploadablePalette", () => {
     const [event] = await uploadFilesWithReference(palette, [createImageFile()]);
 
     expect(event.detail.control.querySelector("#front-path")).not.toBeNull();
+  });
+
+  test("attaches OpenCV debug images to uploaded photo controls", async () => {
+    const { palette } = createFixture();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "front-bodice.jpg",
+              filename: "saved-front-bodice.jpg",
+              url: "/uploads/saved-front-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          svg: [SIMPLE_SVG, 60, 40],
+          debug_image_urls: DEBUG_IMAGE_URLS,
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [event] = await uploadFilesWithReference(palette, [createImageFile()]);
+    const control = event.detail.control;
+
+    control.debugButton.click();
+
+    const images = Array.from(
+      control.shadowRoot.querySelectorAll(".debug-figure img"),
+    );
+
+    expect(event.detail.debugImages).toEqual([
+      {
+        name: "imgContours_page",
+        filename: "0_imgContours_page.png",
+        mimeType: "image/png",
+        url: "https://example.com/debug-images/session/0_imgContours_page.png",
+      },
+      {
+        name: "imgWarp",
+        filename: "3_imgWarp.png",
+        mimeType: "image/png",
+        url: "https://example.com/debug-images/session/3_imgWarp.png",
+      },
+    ]);
+    expect(control.debugButton.hidden).toBe(false);
+    expect(control.debugButton.textContent).toBe("CV Debug (2)");
+    expect(control.debugModalEl.hidden).toBe(false);
+    expect(images).toHaveLength(2);
+    expect(images.map((image) => image.alt)).toEqual([
+      "imgContours_page",
+      "imgWarp",
+    ]);
+    expect(images[0].src).toBe(DEBUG_IMAGE_URLS[0].url);
   });
 
   test("reports OpenCV conversion failures without adding a control", async () => {

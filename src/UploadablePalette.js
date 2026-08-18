@@ -390,8 +390,12 @@ export class UploadablePalette extends HTMLElement {
 
     for (const file of files) {
       try {
-        const svgText = await this._getSvgTextForFile(file);
-        this.addSvgControl(svgText, file.name);
+        const svgResult = this._normalizeSvgResult(
+          await this._getSvgTextForFile(file),
+        );
+        this.addSvgControl(svgResult.svgText, file.name, {
+          debugImages: svgResult.debugImages,
+        });
       } catch (error) {
         failures.push({ file, error });
       }
@@ -417,7 +421,7 @@ export class UploadablePalette extends HTMLElement {
     this._setStatus("");
   };
 
-  addSvgControl(svgText, fileName = "uploaded.svg") {
+  addSvgControl(svgText, fileName = "uploaded.svg", options = {}) {
     const uploadedSvg = this._parseSvg(svgText);
     const baseName = this._basename(fileName);
     const label = this._humanizeName(baseName);
@@ -433,7 +437,10 @@ export class UploadablePalette extends HTMLElement {
 
     control.appendChild(this._createPreviewSvg(uploadedSvg));
     control.appendChild(this._createShapeTemplate(uploadedSvg));
+    control.debugImages = options.debugImages || [];
     this.controlsEl.appendChild(control);
+
+    const debugImages = control.debugImages;
 
     this.dispatchEvent(
       new CustomEvent("svg-uploaded", {
@@ -443,6 +450,7 @@ export class UploadablePalette extends HTMLElement {
           pieceKind,
           label,
           fileName,
+          debugImages,
         },
         bubbles: true,
         composed: true,
@@ -454,7 +462,10 @@ export class UploadablePalette extends HTMLElement {
 
   async _getSvgTextForFile(file) {
     if (this._isSvgFile(file)) {
-      return this._readFileText(file);
+      return {
+        svgText: await this._readFileText(file),
+        debugImages: [],
+      };
     }
 
     return this._convertPhotoToContourSvg(file);
@@ -509,16 +520,16 @@ export class UploadablePalette extends HTMLElement {
     const referenceDimensions = await this._requestReferenceDimensions();
     this._setStatus("Converting uploaded image...");
 
-    const svgText = await this._fetchSvgText(
+    const svgResult = await this._fetchOpenCvResult(
       this._opencvSvgUrl(uploadedUrl, referenceDimensions),
       "OpenCV conversion failed.",
     );
 
-    if (typeof svgText !== "string" || svgText.trim() === "") {
+    if (typeof svgResult.svgText !== "string" || svgResult.svgText.trim() === "") {
       throw new Error("OpenCV response did not include an SVG.");
     }
 
-    return svgText;
+    return svgResult;
   }
 
   _uploadedFileUrl(uploadedFile) {
@@ -546,6 +557,7 @@ export class UploadablePalette extends HTMLElement {
       "reference_height_mm",
       this._formatMillimeters(referenceDimensions.heightMm),
     );
+    url.searchParams.set("debug_image_urls", "1");
 
     return url.href;
   }
@@ -705,6 +717,12 @@ export class UploadablePalette extends HTMLElement {
   }
 
   async _fetchSvgText(url, fallbackMessage) {
+    const result = await this._fetchOpenCvResult(url, fallbackMessage);
+
+    return result.svgText;
+  }
+
+  async _fetchOpenCvResult(url, fallbackMessage) {
     const response = await fetch(url);
     const text = await response.text();
 
@@ -712,18 +730,76 @@ export class UploadablePalette extends HTMLElement {
       throw new Error(this._responseErrorMessage(text) || fallbackMessage);
     }
 
-    return this._svgTextFromResponseBody(text);
+    return this._opencvResultFromResponseBody(text);
   }
 
   _svgTextFromResponseBody(text) {
+    return this._opencvResultFromResponseBody(text).svgText;
+  }
+
+  _opencvResultFromResponseBody(text) {
     try {
       const result = JSON.parse(text);
-      const svgText = Array.isArray(result.svg) ? result.svg[0] : result.svg;
 
-      return typeof svgText === "string" ? svgText : "";
+      return {
+        svgText: this._svgTextFromJson(result),
+        debugImages: this._debugImagesFromResponse(result),
+      };
     } catch {
-      return text;
+      return {
+        svgText: text,
+        debugImages: [],
+      };
     }
+  }
+
+  _svgTextFromJson(result) {
+    const svgText = Array.isArray(result?.svg) ? result.svg[0] : result?.svg;
+
+    return typeof svgText === "string" ? svgText : "";
+  }
+
+  _debugImagesFromResponse(result) {
+    const debugImages =
+      result?.debug_image_urls ||
+      result?.debug_images ||
+      result?.debugImages ||
+      [];
+
+    if (Array.isArray(debugImages)) {
+      return debugImages;
+    }
+
+    if (debugImages && typeof debugImages === "object") {
+      return Object.entries(debugImages).map(([name, image]) => {
+        if (typeof image === "string") {
+          return { name, url: image };
+        }
+
+        return {
+          ...image,
+          name: image?.name || name,
+        };
+      });
+    }
+
+    return [];
+  }
+
+  _normalizeSvgResult(result) {
+    if (typeof result === "string") {
+      return {
+        svgText: result,
+        debugImages: [],
+      };
+    }
+
+    return {
+      svgText: result?.svgText || "",
+      debugImages: Array.isArray(result?.debugImages)
+        ? result.debugImages
+        : [],
+    };
   }
 
   _responseErrorMessage(text) {

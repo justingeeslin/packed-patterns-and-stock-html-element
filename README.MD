@@ -35,8 +35,12 @@ SVG endpoint:
 ```
 
 The OpenCV request is sent as
-`?url=...&reference_width_mm=215.9&reference_height_mm=279.4`, and the returned
-SVG is added through the same path as a directly uploaded SVG.
+`?url=...&reference_width_mm=215.9&reference_height_mm=279.4&debug_image_urls=1`,
+and the returned SVG is added through the same path as a directly uploaded SVG.
+
+JSON OpenCV responses may include `debug_image_urls`, a list of snapshots from
+the CV pipeline. When present, the generated `<piece-quantity-control>` shows a
+CV Debug button that opens a troubleshooting viewer with those images.
 
 After a non-SVG file is uploaded, the component opens an HTML modal for the
 reference object width, height, and unit before the OpenCV request is sent.

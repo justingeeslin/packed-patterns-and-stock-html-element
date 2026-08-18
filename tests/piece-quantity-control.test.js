@@ -89,6 +89,44 @@ describe("PieceQuantityControl", () => {
 	expect(control.qtyInput).not.toBeNull();
   });
 
+  test("hides the CV debug button when no debug images are available", () => {
+	const { control } = createFixture();
+
+	expect(control.debugButton.hidden).toBe(true);
+	expect(control.debugImages).toEqual([]);
+  });
+
+  test("opens a CV debug image viewer when debug images are available", () => {
+	const { control } = createFixture();
+
+	control.debugImages = [
+	  {
+		name: "imgWarp",
+		filename: "3_imgWarp.png",
+		mime_type: "image/png",
+		url: "/debug-images/session/3_imgWarp.png",
+	  },
+	];
+
+	control.debugButton.click();
+
+	const image = control.shadowRoot.querySelector(".debug-figure img");
+	const openLink = control.shadowRoot.querySelector(".debug-caption a");
+
+	expect(control.debugButton.hidden).toBe(false);
+	expect(control.debugButton.textContent).toBe("CV Debug");
+	expect(control.debugModalEl.hidden).toBe(false);
+	expect(image.alt).toBe("imgWarp");
+	expect(new URL(image.src).pathname).toBe(
+	  "/debug-images/session/3_imgWarp.png",
+	);
+	expect(openLink.target).toBe("_blank");
+
+	control.debugCloseButton.click();
+
+	expect(control.debugModalEl.hidden).toBe(true);
+  });
+
   test("renders the label attribute", () => {
 	const { control } = createFixture({
 	  label: "Squares",

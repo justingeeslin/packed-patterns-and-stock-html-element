@@ -93,6 +93,7 @@ export class UploadablePalette extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._uploadCounter = 0;
     this._referenceDialogRequest = null;
+    this._lastReferenceDimensionInputs = null;
     this._failureDebugImages = [];
     this._lastFocusedElement = null;
     this._lastFailureDebugFocusedElement = null;
@@ -827,13 +828,11 @@ export class UploadablePalette extends HTMLElement {
   }
 
   _openReferenceDialog({ imageUrl = "", imageName = "uploaded image" } = {}) {
-    this.referenceWidthInput.value = this._formatMillimeters(
-      this.referenceWidthMm,
-    );
-    this.referenceHeightInput.value = this._formatMillimeters(
-      this.referenceHeightMm,
-    );
-    this.referenceUnitSelect.value = "mm";
+    const values = this._referenceDimensionInputValues();
+
+    this.referenceWidthInput.value = values.width;
+    this.referenceHeightInput.value = values.height;
+    this.referenceUnitSelect.value = values.unit;
     this._setReferencePreview(imageUrl, imageName);
     this._setReferenceDialogError("");
     this._lastFocusedElement = this.shadowRoot.activeElement || document.activeElement;
@@ -878,16 +877,19 @@ export class UploadablePalette extends HTMLElement {
 
   _readReferenceDimensions() {
     const unit = this.referenceUnitSelect.value;
+    const width = this.referenceWidthInput.value;
+    const height = this.referenceHeightInput.value;
 
     return {
       widthMm: this._measurementToMillimeters(
-        `${this.referenceWidthInput.value} ${unit}`,
+        `${width} ${unit}`,
         "width",
       ),
       heightMm: this._measurementToMillimeters(
-        `${this.referenceHeightInput.value} ${unit}`,
+        `${height} ${unit}`,
         "height",
       ),
+      inputs: { width, height, unit },
     };
   }
 
@@ -895,6 +897,7 @@ export class UploadablePalette extends HTMLElement {
     const request = this._referenceDialogRequest;
     if (!request) return;
 
+    this._lastReferenceDimensionInputs = referenceDimensions.inputs;
     this._closeReferenceDialog();
     request.resolve(referenceDimensions);
   }
@@ -930,6 +933,18 @@ export class UploadablePalette extends HTMLElement {
   _setReferenceDialogError(message) {
     this.referenceErrorEl.textContent = message;
     this.referenceErrorEl.hidden = message === "";
+  }
+
+  _referenceDimensionInputValues() {
+    if (this._lastReferenceDimensionInputs) {
+      return this._lastReferenceDimensionInputs;
+    }
+
+    return {
+      width: this._formatMillimeters(this.referenceWidthMm),
+      height: this._formatMillimeters(this.referenceHeightMm),
+      unit: "mm",
+    };
   }
 
   _setFailureDebugImages(images) {

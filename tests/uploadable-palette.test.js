@@ -468,6 +468,85 @@ describe("UploadablePalette", () => {
     expect(opencvUrl.searchParams.get("debug_image_urls")).toBe("1");
   });
 
+  test("prefills the reference dimension modal with the last submitted photo dimensions", async () => {
+    const { palette } = createFixture();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "first-bodice.jpg",
+              filename: "saved-first-bodice.jpg",
+              url: "/uploads/saved-first-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(svgResponse(SIMPLE_SVG))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          files: [
+            {
+              status: "success",
+              original_name: "second-bodice.jpg",
+              filename: "saved-second-bodice.jpg",
+              url: "/uploads/saved-second-bodice.jpg",
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstUploads = waitForUploadEvents(palette, 1);
+    dispatchFiles(palette, [
+      createImageFile("fake image contents", "first-bodice.jpg"),
+    ]);
+    let controls = await waitForReferenceModal(palette);
+
+    controls.widthInput.value = "8.5";
+    controls.heightInput.value = "11";
+    controls.unitSelect.value = "in";
+    controls.form.dispatchEvent(
+      new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    await firstUploads;
+
+    const secondUploads = waitForUploadEvents(palette, 1);
+    dispatchFiles(palette, [
+      createImageFile("fake image contents", "second-bodice.jpg"),
+    ]);
+    controls = await waitForReferenceModal(palette);
+
+    expect(controls.widthInput.value).toBe("8.5");
+    expect(controls.heightInput.value).toBe("11");
+    expect(controls.unitSelect.value).toBe("in");
+
+    controls.form.dispatchEvent(
+      new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    await secondUploads;
+
+    const secondOpencvUrl = new URL(fetchMock.mock.calls[3][0]);
+    expect(secondOpencvUrl.searchParams.get("url")).toBe(
+      new URL("/uploads/saved-second-bodice.jpg", document.baseURI).href,
+    );
+    expect(secondOpencvUrl.searchParams.get("reference_width_mm")).toBe("215.9");
+    expect(secondOpencvUrl.searchParams.get("reference_height_mm")).toBe("279.4");
+  });
+
   test("retargets existing and uploaded controls when the board attribute changes", async () => {
     const { palette } = createFixture();
 

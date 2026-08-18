@@ -95,6 +95,8 @@ function referenceControls(palette) {
     widthInput: palette.shadowRoot.querySelector("#referenceWidthInput"),
     heightInput: palette.shadowRoot.querySelector("#referenceHeightInput"),
     unitSelect: palette.shadowRoot.querySelector("#referenceUnitSelect"),
+    preview: palette.shadowRoot.querySelector("#referenceImagePreview"),
+    previewImage: palette.shadowRoot.querySelector("#referenceImagePreviewImg"),
     error: palette.shadowRoot.querySelector("#referenceDimensionError"),
     cancelButton: palette.shadowRoot.querySelector("#referenceCancelButton"),
   };
@@ -237,6 +239,10 @@ describe("UploadablePalette", () => {
     expect(controls.widthInput).not.toBeNull();
     expect(controls.heightInput).not.toBeNull();
     expect(controls.unitSelect).not.toBeNull();
+    expect(controls.preview).not.toBeNull();
+    expect(controls.preview.hidden).toBe(true);
+    expect(controls.previewImage).not.toBeNull();
+    expect(controls.previewImage.hasAttribute("src")).toBe(false);
   });
 
   test("logs when window.prompt is unavailable", () => {
@@ -322,6 +328,11 @@ describe("UploadablePalette", () => {
     expect(controls.widthInput.value).toBe("215.9");
     expect(controls.heightInput.value).toBe("279.4");
     expect(controls.unitSelect.value).toBe("mm");
+    expect(controls.preview.hidden).toBe(false);
+    expect(controls.previewImage.src).toBe(
+      new URL("/uploads/saved-front-bodice.jpg", document.baseURI).href,
+    );
+    expect(controls.previewImage.alt).toBe("Preview of front-bodice.jpg");
 
     controls.widthInput.value = "8.5";
     controls.heightInput.value = "11";
@@ -359,6 +370,8 @@ describe("UploadablePalette", () => {
       "UploadablePalette: using the built-in reference dimension modal instead of window.prompt for reference dimensions.",
     );
     expect(controls.modal.hidden).toBe(true);
+    expect(controls.preview.hidden).toBe(true);
+    expect(controls.previewImage.hasAttribute("src")).toBe(false);
     expect(control.id).toBe("uploaded-front-bodice-0-control");
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");

@@ -5,8 +5,8 @@ const SVG_MIME_TYPE = "image/svg+xml";
 const DEFAULT_PHOTO_UPLOAD_ENDPOINT = "../upload.php";
 const DEFAULT_OPENCV_ENDPOINT =
   "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com";
-const DEFAULT_REFERENCE_WIDTH_MM = 279.4;
-const DEFAULT_REFERENCE_HEIGHT_MM = 215.9;
+const DEFAULT_REFERENCE_WIDTH_MM = 215.9;
+const DEFAULT_REFERENCE_HEIGHT_MM = 279.4;
 
 const DEFAULT_CONTROLS = `
   <piece-quantity-control
@@ -197,6 +197,29 @@ export class UploadablePalette extends HTMLElement {
           margin: 0;
         }
 
+        .reference-preview {
+          align-items: center;
+          background: #f6f8fa;
+          border: 1px solid #d7dce2;
+          border-radius: 6px;
+          display: flex;
+          justify-content: center;
+          min-height: 160px;
+          overflow: hidden;
+          padding: 8px;
+        }
+
+        .reference-preview[hidden] {
+          display: none;
+        }
+
+        .reference-preview img {
+          display: block;
+          max-height: 240px;
+          max-width: 100%;
+          object-fit: contain;
+        }
+
         .reference-fields {
           display: grid;
           gap: 12px;
@@ -266,6 +289,9 @@ export class UploadablePalette extends HTMLElement {
             aria-labelledby="referenceDimensionTitle"
           >
             <h2 id="referenceDimensionTitle">Reference Dimensions</h2>
+            <div class="reference-preview" id="referenceImagePreview" hidden>
+              <img id="referenceImagePreviewImg" alt="">
+            </div>
             <div class="reference-fields">
               <label class="reference-field">
                 Width
@@ -356,6 +382,14 @@ export class UploadablePalette extends HTMLElement {
 
   get referenceErrorEl() {
     return this.shadowRoot.querySelector("#referenceDimensionError");
+  }
+
+  get referencePreviewEl() {
+    return this.shadowRoot.querySelector("#referenceImagePreview");
+  }
+
+  get referencePreviewImage() {
+    return this.shadowRoot.querySelector("#referenceImagePreviewImg");
   }
 
   get referenceCancelButton() {
@@ -517,7 +551,10 @@ export class UploadablePalette extends HTMLElement {
     }
 
     this._setStatus("Enter reference dimensions to continue.");
-    const referenceDimensions = await this._requestReferenceDimensions();
+    const referenceDimensions = await this._requestReferenceDimensions({
+      imageUrl: uploadedUrl,
+      imageName: uploadedFile.original_name || file.name || "uploaded image",
+    });
     this._setStatus("Converting uploaded image...");
 
     const svgResult = await this._fetchOpenCvResult(
@@ -562,20 +599,20 @@ export class UploadablePalette extends HTMLElement {
     return url.href;
   }
 
-  _requestReferenceDimensions() {
+  _requestReferenceDimensions(options = {}) {
     if (this._referenceDialogRequest) {
       throw new Error("Reference dimensions are already being requested.");
     }
 
     this._logReferenceDimensionPromptMode();
-    this._openReferenceDialog();
+    this._openReferenceDialog(options);
 
     return new Promise((resolve, reject) => {
       this._referenceDialogRequest = { resolve, reject };
     });
   }
 
-  _openReferenceDialog() {
+  _openReferenceDialog({ imageUrl = "", imageName = "uploaded image" } = {}) {
     this.referenceWidthInput.value = this._formatMillimeters(
       this.referenceWidthMm,
     );
@@ -583,6 +620,7 @@ export class UploadablePalette extends HTMLElement {
       this.referenceHeightMm,
     );
     this.referenceUnitSelect.value = "mm";
+    this._setReferencePreview(imageUrl, imageName);
     this._setReferenceDialogError("");
     this._lastFocusedElement = this.shadowRoot.activeElement || document.activeElement;
     this.referenceModalEl.hidden = false;
@@ -636,10 +674,22 @@ export class UploadablePalette extends HTMLElement {
 
   _closeReferenceDialog() {
     this.referenceModalEl.hidden = true;
+    this._setReferencePreview("", "");
     this._setReferenceDialogError("");
     this._referenceDialogRequest = null;
     this._lastFocusedElement?.focus?.();
     this._lastFocusedElement = null;
+  }
+
+  _setReferencePreview(imageUrl, imageName) {
+    if (imageUrl) {
+      this.referencePreviewImage.src = imageUrl;
+      this.referencePreviewImage.alt = `Preview of ${imageName || "uploaded image"}`;
+    } else {
+      this.referencePreviewImage.removeAttribute("src");
+      this.referencePreviewImage.alt = "";
+    }
+    this.referencePreviewEl.hidden = imageUrl === "";
   }
 
   _setReferenceDialogError(message) {

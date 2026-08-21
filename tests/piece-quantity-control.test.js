@@ -360,6 +360,64 @@ describe("PieceQuantityControl", () => {
 	expect(remainingPieces[1]).toBe(secondPiece);
   });
 
+  test("treats multiple template roots as one quantity unit", async () => {
+	const { control, board } = createFixture({
+	  template: `
+		<template slot="shape">
+		  <svg xmlns="http://www.w3.org/2000/svg">
+			<g id="front-piece"><path d="M0 0 L10 0 L5 10 Z"></path></g>
+			<g id="back-piece"><path d="M0 0 L20 0 L20 8 L0 8 Z"></path></g>
+		  </svg>
+		</template>
+	  `,
+	});
+
+	await setQuantity(control, 2);
+
+	let pieces = getOwnedPieces(
+	  board,
+	  "triangle-control",
+	  "triangle",
+	);
+
+	expect(pieces).toHaveLength(4);
+	expect(pieces.map((piece) => piece.id)).toEqual([
+	  "front-piece",
+	  "back-piece",
+	  "front-piece",
+	  "back-piece",
+	]);
+	expect(pieces.map((piece) => piece.getAttribute("data-owner-unit"))).toEqual([
+	  "triangle-control-0",
+	  "triangle-control-0",
+	  "triangle-control-1",
+	  "triangle-control-1",
+	]);
+	expect(pieces.map((piece) => piece.getAttribute("transform"))).toEqual([
+	  "translate(80, 80)",
+	  "translate(200, 80)",
+	  "translate(320, 80)",
+	  "translate(440, 80)",
+	]);
+
+	await setQuantity(control, 1);
+
+	pieces = getOwnedPieces(
+	  board,
+	  "triangle-control",
+	  "triangle",
+	);
+
+	expect(pieces).toHaveLength(2);
+	expect(pieces.map((piece) => piece.id)).toEqual([
+	  "front-piece",
+	  "back-piece",
+	]);
+	expect(
+	  new Set(pieces.map((piece) => piece.getAttribute("data-owner-unit"))),
+	).toEqual(new Set(["triangle-control-0"]));
+  });
+
   test("does not remove pieces owned by another control", async () => {
 	const container = document.createElement("div");
 

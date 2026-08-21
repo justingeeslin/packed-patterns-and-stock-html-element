@@ -16,8 +16,10 @@
         --board-bg: #fbfcfe;
         --grid-minor: #dce4ee;
         --grid-major: #b8c6d6;
-        --stock-stroke: #1b1f24;
-        --garment-stroke: #0077cc;
+        --pattern-pack-stock-stroke: #007a3d;
+        --pattern-pack-garment-stroke: #005fcc;
+        --stock-stroke: var(--pattern-pack-stock-stroke);
+        --garment-stroke: var(--pattern-pack-garment-stroke);
         --focus: #0077cc;
       }
 
@@ -33,8 +35,10 @@
           --board-bg: #12161d;
           --grid-minor: #242d39;
           --grid-major: #3b4656;
-          --stock-stroke: #f5f7fa;
-          --garment-stroke: #55b7ff;
+          --pattern-pack-stock-stroke: #38d982;
+          --pattern-pack-garment-stroke: #5aa2ff;
+          --stock-stroke: var(--pattern-pack-stock-stroke);
+          --garment-stroke: var(--pattern-pack-garment-stroke);
           --focus: #55b7ff;
         }
       }
@@ -128,12 +132,15 @@
         fill: transparent;
         stroke: var(--stock-stroke);
         stroke-width: 3;
+        vector-effect: non-scaling-stroke;
       }
 
       pattern-pack-board [role="garment"],
       pattern-pack-board [role="garment"] * {
         fill: transparent;
         stroke: var(--garment-stroke);
+        stroke-width: 2.5;
+        vector-effect: non-scaling-stroke;
       }
 
       pattern-pack-board :focus-visible,
@@ -197,7 +204,7 @@
             </defs>
 
             <rect class="board-background" x="0" y="0" width="1200" height="750"></rect>
-            <rect x="0" y="0" width="1200" height="750" fill="url(#major-grid)"></rect>
+            <rect data-board-layer="grid" x="0" y="0" width="1200" height="750" fill="url(#major-grid)"></rect>
 
             <polygon
               id="stock-shirt"
@@ -242,6 +249,7 @@
 
         palette.element.addEventListener("svg-uploaded", (event) => {
           namespaceControl(event.detail.control, palette.prefix);
+          addUploadedControlToBoard(event.detail.control);
           console.log(`${palette.prefix} uploaded SVG added as`, event.detail.control.id);
         });
       }
@@ -261,6 +269,17 @@
         control.id = `${prefix}-${currentId}`;
         control.setAttribute("piece-kind", `${prefix}-${currentKind}`);
         control.dataset.namespacedBy = prefix;
+      }
+
+      function addUploadedControlToBoard(control) {
+        const quantity = Math.max(control.value, 1);
+        control.qtyInput.value = String(quantity);
+        control.qtyInput.dispatchEvent(
+          new Event("input", {
+            bubbles: true,
+            composed: true,
+          }),
+        );
       }
     </script>
   </body>

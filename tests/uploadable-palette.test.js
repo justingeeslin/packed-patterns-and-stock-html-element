@@ -26,6 +26,50 @@ const SIZELESS_SVG_WITHOUT_VIEWBOX = `
   </svg>
 `;
 
+const OFFSET_LAYER_SVG = `
+  <svg xmlns="${SVG_NS}" viewBox="0 0 1000 1000">
+    <g id="exported-layer" transform="translate(820,730)">
+      <path id="offset-path" d="M 20 30 L 80 30 L 80 90 L 20 90 Z" fill="none"></path>
+    </g>
+  </svg>
+`;
+
+const INKSCAPE_LAYER_SVG = `
+  <svg
+    xmlns="${SVG_NS}"
+    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+    viewBox="0 0 1000 1000"
+  >
+    <g
+      id="layer1"
+      inkscape:groupmode="layer"
+      inkscape:label="Layer 1"
+      transform="translate(300,400)"
+    >
+      <path id="inkscape-path" d="M 10 10 L 70 10 L 70 50 L 10 50 Z" fill="none"></path>
+    </g>
+  </svg>
+`;
+
+const DXF_SCALED_SVG = `
+  <svg xmlns="${SVG_NS}" viewBox="0 0 254 254">
+    <desc>sample.dxf - scale = 25.400000, origin = (0.000000, 0.000000), method = file</desc>
+    <path id="scaled-path" d="M 0 0 L 254 0 L 254 127 L 0 127 Z" fill="none"></path>
+  </svg>
+`;
+
+const SPACED_SHAPES_WITH_TEXT_SVG = `
+  <svg xmlns="${SVG_NS}" viewBox="0 0 320 80">
+    <text id="cut-label" x="10" y="70">Cut 1</text>
+    <g id="left-piece">
+      <path id="left-outline" d="M 10 10 L 70 10 L 70 50 L 10 50 Z" fill="none"></path>
+    </g>
+    <g id="right-piece" transform="translate(220,0)">
+      <path id="right-outline" d="M 10 10 L 70 10 L 70 50 L 10 50 Z" fill="none"></path>
+    </g>
+  </svg>
+`;
+
 const DEBUG_IMAGE_URLS = [
   {
     name: "imgContours_page",
@@ -594,6 +638,234 @@ describe("UploadablePalette", () => {
     expect(wrapper.getAttribute("data-draggable")).toBe("true");
     expect(wrapper.querySelector("#front-path")).not.toBeNull();
     expect(wrapper.querySelector("#notch")).not.toBeNull();
+  });
+
+  test("removes text elements from uploaded previews and templates", async () => {
+    const { palette } = createFixture();
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(SPACED_SHAPES_WITH_TEXT_SVG, "spaced-shapes.svg"),
+    ]);
+    const preview = event.detail.control.querySelector('svg[slot="preview"]');
+    const template = event.detail.control.querySelector('template[slot="shape"]');
+
+    expect(preview.querySelector("text")).toBeNull();
+    expect(template.content.querySelector("text")).toBeNull();
+    expect(template.content.querySelector("#left-outline")).not.toBeNull();
+    expect(template.content.querySelector("#right-outline")).not.toBeNull();
+  });
+
+  test("keeps separated uploaded shapes under one quantity control", async () => {
+    const { palette, board } = createFixture();
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(SPACED_SHAPES_WITH_TEXT_SVG, "spaced-shapes.svg"),
+    ]);
+    const control = event.detail.control;
+    const template = control.querySelector('template[slot="shape"]');
+    const wrappers = Array.from(
+      template.content.querySelectorAll('g[role="garment"]'),
+    );
+
+    expect(event.detail.controlId).toBe("uploaded-spaced-shapes-0-control");
+    expect(event.detail.label).toBe("Spaced Shapes");
+    expect(wrappers).toHaveLength(2);
+    expect(wrappers.map((wrapper) => wrapper.hasAttribute("transform"))).toEqual([
+      false,
+      false,
+    ]);
+    expect(wrappers.map((wrapper) => wrapper.querySelector("path").getAttribute("transform"))).toEqual([
+      "translate(-10, -10)",
+      "translate(-230, -10) translate(220,0)",
+    ]);
+    expect(template.content.querySelector("#left-outline")).not.toBeNull();
+    expect(template.content.querySelector("#right-outline")).not.toBeNull();
+    expect(template.content.querySelector("text")).toBeNull();
+
+    await setQuantity(control, 1);
+
+    const pieces = Array.from(
+      board.querySelectorAll(
+        '[data-owner-control="uploaded-spaced-shapes-0-control"]',
+      ),
+    );
+
+    expect(pieces).toHaveLength(2);
+    expect(pieces.map((piece) => piece.getAttribute("transform"))).toEqual([
+      "translate(80, 80)",
+      "translate(200, 80)",
+    ]);
+    expect(pieces.map((piece) => piece.querySelector("path").getAttribute("transform"))).toEqual([
+      "translate(-10, -10)",
+      "translate(-230, -10) translate(220,0)",
+    ]);
+    expect(pieces[0].querySelector("#left-outline")).not.toBeNull();
+    expect(pieces[0].querySelector("#right-outline")).toBeNull();
+    expect(pieces[1].querySelector("#right-outline")).not.toBeNull();
+    expect(pieces[1].querySelector("#left-outline")).toBeNull();
+    expect(pieces.every((piece) => piece.querySelector("text") === null)).toBe(
+      true,
+    );
+  });
+
+  test("supports namespaced uploaded controls in the two-palette demo", async () => {
+    const container = document.createElement("div");
+
+    container.innerHTML = `
+      <svg id="board" xmlns="${SVG_NS}"></svg>
+      <uploadable-palette id="palette-a" board="board"></uploadable-palette>
+      <uploadable-palette id="palette-b" board="board"></uploadable-palette>
+    `;
+
+    document.body.appendChild(container);
+
+    const board = container.querySelector("#board");
+    const palette = container.querySelector("#palette-a");
+
+    const namespaceControl = (control, prefix) => {
+      if (control.dataset.namespacedBy === prefix) return;
+
+      const currentId = control.id || control.getAttribute("piece-kind") || "piece";
+      const currentKind = control.getAttribute("piece-kind") || currentId;
+
+      control.id = `${prefix}-${currentId}`;
+      control.setAttribute("piece-kind", `${prefix}-${currentKind}`);
+      control.dataset.namespacedBy = prefix;
+    };
+
+    const addUploadedControlToBoard = (control) => {
+      const quantity = Math.max(control.value, 1);
+      control.qtyInput.value = String(quantity);
+      control.qtyInput.dispatchEvent(
+        new Event("input", {
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    };
+
+    palette.addEventListener("svg-uploaded", (event) => {
+      namespaceControl(event.detail.control, "palette-a");
+      addUploadedControlToBoard(event.detail.control);
+    });
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(SPACED_SHAPES_WITH_TEXT_SVG, "spaced-shapes.svg"),
+    ]);
+    const control = event.detail.control;
+
+    expect(control.id).toBe("palette-a-uploaded-spaced-shapes-0-control");
+    expect(control.getAttribute("piece-kind")).toBe(
+      "palette-a-uploaded-spaced-shapes-0",
+    );
+    expect(control.value).toBe(1);
+
+    const pieces = Array.from(
+      board.querySelectorAll(
+        '[data-owner-control="palette-a-uploaded-spaced-shapes-0-control"]',
+      ),
+    );
+
+    expect(pieces).toHaveLength(2);
+    expect(
+      pieces.every(
+        (piece) =>
+          piece.getAttribute("data-piece-kind") ===
+          "palette-a-uploaded-spaced-shapes-0",
+      ),
+    ).toBe(true);
+  });
+
+  test("anchors uploaded SVGs by their visible bounds before adding them to the board", async () => {
+    const { palette, board } = createFixture();
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(OFFSET_LAYER_SVG, "offset-layer.svg"),
+    ]);
+    const control = event.detail.control;
+    const template = control.querySelector('template[slot="shape"]');
+    const wrapper = template.content.querySelector('g[role="garment"]');
+
+    expect(wrapper.hasAttribute("transform")).toBe(false);
+    expect(wrapper.querySelector("#exported-layer")).toBeNull();
+    expect(wrapper.querySelector("#offset-path").getAttribute("transform")).toBe(
+      "translate(-840, -760) translate(820,730)",
+    );
+
+    await setQuantity(control, 1);
+
+    const piece = board.querySelector(
+      '[data-owner-control="uploaded-offset-layer-0-control"]',
+    );
+
+    expect(piece).not.toBeNull();
+    expect(piece.getAttribute("transform")).toBe("translate(80, 80)");
+    expect(piece.querySelector("#offset-path").getAttribute("transform")).toBe(
+      "translate(-840, -760) translate(820,730)",
+    );
+    expect(piece.querySelector("#offset-path")).not.toBeNull();
+  });
+
+  test("unwraps Inkscape layer groups inside uploaded draggable wrappers", async () => {
+    const { palette, board } = createFixture();
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(INKSCAPE_LAYER_SVG, "inkscape-layer.svg"),
+    ]);
+    const control = event.detail.control;
+    const template = control.querySelector('template[slot="shape"]');
+    const wrapper = template.content.querySelector('g[role="garment"]');
+    const templatePath = wrapper.querySelector("#inkscape-path");
+
+    expect(wrapper.getAttribute("data-draggable")).toBe("true");
+    expect(wrapper.hasAttribute("transform")).toBe(false);
+    expect(wrapper.querySelector("#layer1")).toBeNull();
+    expect(templatePath).not.toBeNull();
+    expect(templatePath.getAttribute("transform")).toBe(
+      "translate(-310, -410) translate(300,400)",
+    );
+
+    await setQuantity(control, 1);
+
+    const piece = board.querySelector(
+      '[data-owner-control="uploaded-inkscape-layer-0-control"]',
+    );
+
+    expect(piece).not.toBeNull();
+    expect(piece.getAttribute("transform")).toBe("translate(80, 80)");
+    expect(piece.querySelector("#layer1")).toBeNull();
+    expect(piece.querySelector("#inkscape-path").getAttribute("transform")).toBe(
+      "translate(-310, -410) translate(300,400)",
+    );
+  });
+
+  test("normalizes DXF SVG export scale metadata before adding pieces to the board", async () => {
+    const { palette, board } = createFixture();
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(DXF_SCALED_SVG, "scaled-dxf.svg"),
+    ]);
+    const control = event.detail.control;
+    const template = control.querySelector('template[slot="shape"]');
+    const wrapper = template.content.querySelector('g[role="garment"]');
+
+    expect(wrapper.hasAttribute("transform")).toBe(false);
+    expect(wrapper.querySelector("#scaled-path").getAttribute("transform")).toBe(
+      "matrix(0.0394 0 0 0.0394 0 0)",
+    );
+
+    await setQuantity(control, 1);
+
+    const piece = board.querySelector(
+      '[data-owner-control="uploaded-scaled-dxf-0-control"]',
+    );
+
+    expect(piece).not.toBeNull();
+    expect(piece.getAttribute("transform")).toBe("translate(80, 80)");
+    expect(piece.querySelector("#scaled-path").getAttribute("transform")).toBe(
+      "matrix(0.0394 0 0 0.0394 0 0)",
+    );
+    expect(piece.querySelector("#scaled-path")).not.toBeNull();
   });
 
   test("uses unique IDs for multiple uploads with the same filename", async () => {

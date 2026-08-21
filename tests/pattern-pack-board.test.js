@@ -99,10 +99,10 @@ function createPackedInteractionFixture() {
 		<g id="stock" data-draggable="true" role="stock" pointer-events="all">
 		  <polygon points="0,0 600,0 600,600 0,600" fill="transparent"></polygon>
 		</g>
-		<g id="owned-piece-a" data-owner-control="rectangle-control" data-piece-kind="rectangle" data-instance-id="rectangle-control-0" data-draggable="true" role="garment" pointer-events="all" transform="translate(80, 80)">
+		<g id="owned-piece-a" data-owner-control="rectangle-control" data-piece-kind="rectangle" data-owner-unit="rectangle-control-0" data-instance-id="rectangle-control-0" data-draggable="true" role="garment" pointer-events="all" transform="translate(80, 80)">
 		  <rect x="0" y="0" width="90" height="60" fill="transparent"></rect>
 		</g>
-		<g id="owned-piece-b" data-owner-control="rectangle-control" data-piece-kind="rectangle" data-instance-id="rectangle-control-1" data-draggable="true" role="garment" pointer-events="all" transform="translate(200, 80)">
+		<g id="owned-piece-b" data-owner-control="rectangle-control" data-piece-kind="rectangle" data-owner-unit="rectangle-control-1" data-instance-id="rectangle-control-1" data-draggable="true" role="garment" pointer-events="all" transform="translate(200, 80)">
 		  <rect x="0" y="0" width="90" height="60" fill="transparent"></rect>
 		</g>
 	  </svg>
@@ -152,6 +152,31 @@ describe("PatternPackBoard", () => {
 
   test("registers the custom element", () => {
 	expect(customElements.get("pattern-pack-board")).toBe(PatternPackBoard);
+  });
+
+  test("adds visible role-based strokes for garment and stock pieces", () => {
+	const { board } = createFixture({
+	  svg: `
+		<svg id="board" xmlns="${SVG_NS}" viewBox="0 0 40 40">
+		  <g id="stock-group" role="stock" style="stroke: none; stroke-width: 0">
+			<polygon id="stock-child" points="0,0 20,0 20,20 0,20" style="stroke: none; stroke-width: 0"></polygon>
+		  </g>
+		  <path id="garment-path" role="garment" d="M 4 4 L 36 4 L 4 36 Z" style="stroke: none; stroke-width: 0"></path>
+		</svg>
+	  `,
+	});
+	const svg = board.querySelector("svg");
+	const style = svg.querySelector("defs style#pattern-pack-role-strokes");
+	const stockStyle = getComputedStyle(svg.querySelector("#stock-child"));
+	const garmentStyle = getComputedStyle(svg.querySelector("#garment-path"));
+
+	expect(style).not.toBeNull();
+	expect(style.textContent).toContain("--pattern-pack-garment-stroke");
+	expect(style.textContent).toContain("--pattern-pack-stock-stroke");
+	expect(stockStyle.stroke).toBe("rgb(0, 122, 61)");
+	expect(stockStyle.strokeWidth).toBe("3px");
+	expect(garmentStyle.stroke).toBe("rgb(0, 95, 204)");
+	expect(garmentStyle.strokeWidth).toBe("2.5px");
   });
 
   test("uses the default Packaide endpoint when none is configured", () => {
@@ -260,6 +285,43 @@ describe("PatternPackBoard", () => {
 	expect(parseSvg(payload.input.stock_svgs[1]).querySelector("#stock-b")).not.toBeNull();
   });
 
+  test("expands the board canvas to include newly added large pieces", async () => {
+	const { board } = createFixture({
+	  svg: `
+		<svg id="board" xmlns="${SVG_NS}" viewBox="0 0 100 100" width="100" height="100">
+		  <rect class="board-background" x="0" y="0" width="100" height="100"></rect>
+		  <rect data-board-layer="grid" x="0" y="0" width="100" height="100"></rect>
+		</svg>
+	  `,
+	});
+	const svg = board.querySelector("svg");
+	const piece = document.createElementNS(SVG_NS, "g");
+	const rect = document.createElementNS(SVG_NS, "rect");
+
+	piece.setAttribute("role", "garment");
+	piece.setAttribute("data-draggable", "true");
+	piece.setAttribute("transform", "translate(220, 160)");
+	rect.setAttribute("x", "0");
+	rect.setAttribute("y", "0");
+	rect.setAttribute("width", "80");
+	rect.setAttribute("height", "60");
+	piece.appendChild(rect);
+	svg.appendChild(piece);
+
+	await nextFrame();
+
+	expect(svg.getAttribute("viewBox")).toBe("0 0 350 270");
+	expect(svg.getAttribute("width")).toBe("350");
+	expect(svg.getAttribute("height")).toBe("270");
+	expect(svg.style.width).toBe("350px");
+	expect(svg.style.height).toBe("270px");
+	expect(svg.querySelector(".board-background").getAttribute("width")).toBe(
+	  "350",
+	);
+	expect(svg.querySelector('[data-board-layer="grid"]').getAttribute("height"))
+	  .toBe("270");
+  });
+
   test("consumes RunPod-wrapped worker output SVGs", async () => {
 	const { board } = createFixture({
 	  endpoint: "/api/runpod/runsync",
@@ -345,6 +407,10 @@ describe("PatternPackBoard", () => {
 	expect(packedParts.map((piece) => piece.id)).toEqual([
 	  "packed-part-a",
 	  "packed-part-b",
+	]);
+	expect(packedParts.map((piece) => piece.getAttribute("data-owner-unit"))).toEqual([
+	  "rectangle-control-0",
+	  "rectangle-control-1",
 	]);
 	expect(
 	  packedParts.every(

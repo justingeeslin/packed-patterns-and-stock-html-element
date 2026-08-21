@@ -5,12 +5,14 @@ import DraggableSvgBoard from "/node_modules/draggable-svg-html-element/src/Drag
 const SVG_NS = "http://www.w3.org/2000/svg";
 export const DEFAULT_PACKAIDE_ENDPOINT =
   "https://secure-refuge-29958-07dfc33a91ee.herokuapp.com/proxy/";
+const ROLE_STROKE_STYLE_ID = "pattern-pack-role-strokes";
 const DEFAULT_PACK_OPTIONS = {
   tolerance: 0.03,
   offset: 0,
   rotations: 1,
   persist: false,
 };
+const BOARD_BOUNDS_PADDING = 50;
 const PACK_OPTION_ATTRIBUTES = {
   "include-stock": "include_stock",
   offset: "offset",
@@ -43,6 +45,15 @@ const SVG_GRAPHIC_TAGS = new Set([
   "text",
   "use",
 ]);
+const SVG_STROKE_GRAPHIC_TAGS = [
+  "circle",
+  "ellipse",
+  "line",
+  "path",
+  "polygon",
+  "polyline",
+  "rect",
+];
 const SVG_NON_DRAWING_TAGS = new Set([
   "clipPath",
   "defs",
@@ -62,6 +73,33 @@ const SVG_NON_DRAWING_TAGS = new Set([
 ]);
 const SVG_BLOCKED_IMPORT_TAGS = new Set(["foreignObject", "script"]);
 const SVG_GRAPHIC_SELECTOR = Array.from(SVG_GRAPHIC_TAGS).join(",");
+const ROLE_STROKE_CSS = `
+[role="garment"],
+${SVG_STROKE_GRAPHIC_TAGS.map((tag) => `[role="garment"] ${tag}`).join(",\n")} {
+  stroke: var(--pattern-pack-garment-stroke, #005fcc) !important;
+  stroke-width: var(--pattern-pack-garment-stroke-width, 2.5) !important;
+  vector-effect: non-scaling-stroke;
+}
+
+[role="stock"],
+${SVG_STROKE_GRAPHIC_TAGS.map((tag) => `[role="stock"] ${tag}`).join(",\n")} {
+  stroke: var(--pattern-pack-stock-stroke, #007a3d) !important;
+  stroke-width: var(--pattern-pack-stock-stroke-width, 3) !important;
+  vector-effect: non-scaling-stroke;
+}
+
+@media (prefers-color-scheme: dark) {
+  [role="garment"],
+  ${SVG_STROKE_GRAPHIC_TAGS.map((tag) => `[role="garment"] ${tag}`).join(",\n  ")} {
+    stroke: var(--pattern-pack-garment-stroke-dark, var(--pattern-pack-garment-stroke, #5aa2ff)) !important;
+  }
+
+  [role="stock"],
+  ${SVG_STROKE_GRAPHIC_TAGS.map((tag) => `[role="stock"] ${tag}`).join(",\n  ")} {
+    stroke: var(--pattern-pack-stock-stroke-dark, var(--pattern-pack-stock-stroke, #38d982)) !important;
+  }
+}
+`;
 
 export class PatternPackBoard extends DraggableSvgBoard {
   static get observedAttributes() {
@@ -89,6 +127,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		progress {
 		  width: 100%;
 		  margin: 0.5rem 0;
+		}
+
+		div {
+		  overflow: auto;
 		}
 	  </style>
 	
@@ -149,6 +191,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		if (node.tagName?.toLowerCase() === "polygon" &&
 		node.getAttribute("role") === "stock") {
 			this._placePolygon(node);
+			this._expandBoardBoundsToFitNode(node);
 			return;
 		}
 		
@@ -158,6 +201,8 @@ export class PatternPackBoard extends DraggableSvgBoard {
 				this._placePolygon(polygon);
 			}
 		}
+
+		this._expandBoardBoundsToFitNode(node);
 	}
 	
 	/**
@@ -194,11 +239,13 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	connectedCallback() {
 		console.log("PatternPackBoard Connected")
 		super.connectedCallback?.();
+		this._ensureRoleStrokeStyles();
 		
 		if (this._isConnected) return;
 		this._isConnected = true;
 		
 		this._initializeRightmostX()
+		this._expandBoardBoundsToFitContent();
 		
 		this._startObserver();
 	
@@ -403,9 +450,402 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		"role",
 		"data-owner-control",
 		"data-piece-kind",
+		"data-owner-unit",
 		"data-instance-id"
 	]
 	});
+  }
+
+  _ensureRoleStrokeStyles() {
+	if (!this.svg) return;
+
+	const defs = this._ensureBoardDefs();
+	let style = defs.querySelector(`style#${ROLE_STROKE_STYLE_ID}`);
+
+	if (!style) {
+	  style = document.createElementNS(SVG_NS, "style");
+	  style.id = ROLE_STROKE_STYLE_ID;
+	  style.setAttribute("data-pattern-pack-role-styles", "");
+	  defs.insertBefore(style, defs.firstChild);
+	}
+
+	style.textContent = ROLE_STROKE_CSS;
+  }
+
+  _ensureBoardDefs() {
+	let defs = this.svg.querySelector(":scope > defs");
+
+	if (!defs) {
+	  defs = document.createElementNS(SVG_NS, "defs");
+	  this.svg.insertBefore(defs, this.svg.firstChild);
+	}
+
+	return defs;
+  }
+
+  _expandBoardBoundsToFitContent() {
+	const nodes = [
+	  ...this._roleNodes("stock"),
+	  ...this._roleNodes("garment"),
+	];
+	const bounds = nodes.reduce(
+	  (combinedBounds, node) =>
+		this._unionBounds(combinedBounds, this._svgElementBounds(node)),
+	  null,
+	);
+
+	this._expandBoardViewBoxToBounds(bounds);
+  }
+
+  _expandBoardBoundsToFitNode(node) {
+	if (!(node instanceof Element)) return;
+
+	const nodes = this._boardBoundaryNodes(node);
+	if (nodes.length === 0) return;
+
+	const bounds = nodes.reduce(
+	  (combinedBounds, boundaryNode) =>
+		this._unionBounds(
+		  combinedBounds,
+		  this._svgElementBounds(boundaryNode),
+		),
+	  null,
+	);
+
+	this._expandBoardViewBoxToBounds(bounds);
+  }
+
+  _boardBoundaryNodes(node) {
+	if (
+	  node.matches?.('[role="stock"], [role="garment"]') ||
+	  node.getAttribute?.("data-draggable") === "true"
+	) {
+	  return [node];
+	}
+
+	return Array.from(
+	  node.querySelectorAll?.('[role="stock"], [role="garment"], [data-draggable="true"]') || [],
+	).filter(
+	  (boundaryNode) =>
+		!boundaryNode.parentElement?.closest?.(
+		  '[role="stock"], [role="garment"], [data-draggable="true"]',
+		),
+	);
+  }
+
+  _expandBoardViewBoxToBounds(bounds) {
+	if (!bounds || !this.svg) return;
+
+	const current = this._currentBoardViewBox();
+	if (!current) return;
+
+	const currentMaxX = current.x + current.width;
+	const currentMaxY = current.y + current.height;
+	const boundsMaxX = bounds.x + bounds.width;
+	const boundsMaxY = bounds.y + bounds.height;
+	const minX =
+	  bounds.x < current.x ? bounds.x - BOARD_BOUNDS_PADDING : current.x;
+	const minY =
+	  bounds.y < current.y ? bounds.y - BOARD_BOUNDS_PADDING : current.y;
+	const maxX =
+	  boundsMaxX > currentMaxX ? boundsMaxX + BOARD_BOUNDS_PADDING : currentMaxX;
+	const maxY =
+	  boundsMaxY > currentMaxY ? boundsMaxY + BOARD_BOUNDS_PADDING : currentMaxY;
+	const next = {
+	  x: minX,
+	  y: minY,
+	  width: maxX - minX,
+	  height: maxY - minY,
+	};
+
+	if (!this._viewBoxChanged(current, next)) return;
+
+	this.svg.setAttribute("viewBox", this._formatViewBox(next));
+	this.svg.setAttribute("width", this._formatBoardNumber(next.width));
+	this.svg.setAttribute("height", this._formatBoardNumber(next.height));
+	this.svg.style.width = `${this._formatBoardNumber(next.width)}px`;
+	this.svg.style.height = `${this._formatBoardNumber(next.height)}px`;
+	this._syncBoardLayerBounds(next);
+  }
+
+  _currentBoardViewBox() {
+	const viewBox = this.svg.getAttribute("viewBox");
+	const values = viewBox
+	  ?.trim()
+	  .split(/[\s,]+/)
+	  .map((value) => Number.parseFloat(value));
+
+	if (values?.length === 4 && values.every(Number.isFinite)) {
+	  return {
+		x: values[0],
+		y: values[1],
+		width: values[2],
+		height: values[3],
+	  };
+	}
+
+	const width = Number.parseFloat(this.svg.getAttribute("width")) || 1000;
+	const height = Number.parseFloat(this.svg.getAttribute("height")) || 800;
+
+	return {
+	  x: 0,
+	  y: 0,
+	  width,
+	  height,
+	};
+  }
+
+  _viewBoxChanged(current, next) {
+	return (
+	  Math.abs(current.x - next.x) > 0.001 ||
+	  Math.abs(current.y - next.y) > 0.001 ||
+	  Math.abs(current.width - next.width) > 0.001 ||
+	  Math.abs(current.height - next.height) > 0.001
+	);
+  }
+
+  _syncBoardLayerBounds(viewBox) {
+	this.svg
+	  .querySelectorAll("rect.board-background, rect[data-board-layer]")
+	  .forEach((rect) => {
+		rect.setAttribute("x", this._formatBoardNumber(viewBox.x));
+		rect.setAttribute("y", this._formatBoardNumber(viewBox.y));
+		rect.setAttribute("width", this._formatBoardNumber(viewBox.width));
+		rect.setAttribute("height", this._formatBoardNumber(viewBox.height));
+	  });
+  }
+
+  _svgElementBounds(element) {
+	if (typeof element.getBBox !== "function") return null;
+
+	try {
+	  const box = element.getBBox();
+	  if (
+		!Number.isFinite(box.x) ||
+		!Number.isFinite(box.y) ||
+		!Number.isFinite(box.width) ||
+		!Number.isFinite(box.height)
+	  ) {
+		return null;
+	  }
+
+	  const matrix = this._combinedSvgTransform(element);
+	  return this._transformedBounds(box, matrix);
+	} catch {
+	  return null;
+	}
+  }
+
+  _combinedSvgTransform(element) {
+	const chain = [];
+
+	for (
+	  let node = element;
+	  node instanceof SVGElement;
+	  node = node.parentElement
+	) {
+	  chain.unshift(node);
+
+	  if (node === this.svg) {
+		break;
+	  }
+	}
+
+	return chain.reduce(
+	  (matrix, node) =>
+		this._multiplySvgMatrices(
+		  matrix,
+		  this._svgTransformMatrix(node.getAttribute("transform")),
+		),
+	  this._identitySvgMatrix(),
+	);
+  }
+
+  _svgTransformMatrix(transform) {
+	let matrix = this._identitySvgMatrix();
+	const pattern = /([a-zA-Z]+)\(([^)]*)\)/g;
+	let match;
+
+	while ((match = pattern.exec(transform || ""))) {
+	  const command = match[1].toLowerCase();
+	  const values = match[2]
+		.trim()
+		.split(/[\s,]+/)
+		.filter(Boolean)
+		.map((value) => Number.parseFloat(value));
+
+	  matrix = this._multiplySvgMatrices(
+		matrix,
+		this._svgTransformCommandMatrix(command, values),
+	  );
+	}
+
+	return matrix;
+  }
+
+  _svgTransformCommandMatrix(command, values) {
+	switch (command) {
+	  case "matrix":
+		if (values.length >= 6) {
+		  return {
+			a: values[0],
+			b: values[1],
+			c: values[2],
+			d: values[3],
+			e: values[4],
+			f: values[5],
+		  };
+		}
+		break;
+	  case "translate":
+		return this._svgTranslateMatrix(values[0] || 0, values[1] || 0);
+	  case "scale":
+		return this._svgScaleMatrix(
+		  values[0] ?? 1,
+		  values.length > 1 ? values[1] : values[0],
+		);
+	  case "rotate":
+		return this._svgRotateMatrix(
+		  values[0] || 0,
+		  values[1],
+		  values[2],
+		);
+	  case "skewx":
+		return this._svgSkewXMatrix(values[0] || 0);
+	  case "skewy":
+		return this._svgSkewYMatrix(values[0] || 0);
+	}
+
+	return this._identitySvgMatrix();
+  }
+
+  _identitySvgMatrix() {
+	return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  }
+
+  _svgTranslateMatrix(x, y = 0) {
+	return { a: 1, b: 0, c: 0, d: 1, e: x, f: y };
+  }
+
+  _svgScaleMatrix(x, y = x) {
+	return { a: x, b: 0, c: 0, d: y, e: 0, f: 0 };
+  }
+
+  _svgRotateMatrix(angle, cx, cy) {
+	const radians = (angle * Math.PI) / 180;
+	const cos = Math.cos(radians);
+	const sin = Math.sin(radians);
+	const rotate = { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+
+	if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+	  return rotate;
+	}
+
+	return this._multiplySvgMatrices(
+	  this._multiplySvgMatrices(
+		this._svgTranslateMatrix(cx, cy),
+		rotate,
+	  ),
+	  this._svgTranslateMatrix(-cx, -cy),
+	);
+  }
+
+  _svgSkewXMatrix(angle) {
+	return {
+	  a: 1,
+	  b: 0,
+	  c: Math.tan((angle * Math.PI) / 180),
+	  d: 1,
+	  e: 0,
+	  f: 0,
+	};
+  }
+
+  _svgSkewYMatrix(angle) {
+	return {
+	  a: 1,
+	  b: Math.tan((angle * Math.PI) / 180),
+	  c: 0,
+	  d: 1,
+	  e: 0,
+	  f: 0,
+	};
+  }
+
+  _multiplySvgMatrices(a, b) {
+	return {
+	  a: a.a * b.a + a.c * b.b,
+	  b: a.b * b.a + a.d * b.b,
+	  c: a.a * b.c + a.c * b.d,
+	  d: a.b * b.c + a.d * b.d,
+	  e: a.a * b.e + a.c * b.f + a.e,
+	  f: a.b * b.e + a.d * b.f + a.f,
+	};
+  }
+
+  _transformedBounds(box, matrix) {
+	const points = [
+	  { x: box.x, y: box.y },
+	  { x: box.x + box.width, y: box.y },
+	  { x: box.x, y: box.y + box.height },
+	  { x: box.x + box.width, y: box.y + box.height },
+	].map((point) => this._transformPoint(point, matrix));
+
+	const xs = points.map((point) => point.x);
+	const ys = points.map((point) => point.y);
+	const minX = Math.min(...xs);
+	const minY = Math.min(...ys);
+	const maxX = Math.max(...xs);
+	const maxY = Math.max(...ys);
+
+	return {
+	  x: minX,
+	  y: minY,
+	  width: maxX - minX,
+	  height: maxY - minY,
+	};
+  }
+
+  _transformPoint(point, matrix) {
+	if (!matrix) return point;
+
+	return {
+	  x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+	  y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+	};
+  }
+
+  _unionBounds(a, b) {
+	if (!b) return a;
+	if (!a) return b;
+
+	const minX = Math.min(a.x, b.x);
+	const minY = Math.min(a.y, b.y);
+	const maxX = Math.max(a.x + a.width, b.x + b.width);
+	const maxY = Math.max(a.y + a.height, b.y + b.height);
+
+	return {
+	  x: minX,
+	  y: minY,
+	  width: maxX - minX,
+	  height: maxY - minY,
+	};
+  }
+
+  _formatViewBox(viewBox) {
+	return [
+	  viewBox.x,
+	  viewBox.y,
+	  viewBox.width,
+	  viewBox.height,
+	]
+	  .map((value) => this._formatBoardNumber(value))
+	  .join(" ");
+  }
+
+  _formatBoardNumber(value) {
+	const rounded = Math.abs(value) < 0.0001 ? 0 : Number(value.toFixed(4));
+	return String(rounded);
   }
 
   _serializeAsStandaloneSvg(sourceNodes) {
@@ -532,12 +972,14 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		this._normalizePackedGarments(importedNodes, garmentMetadata);
 		currentSvg.replaceChildren(...preservedNodes, ...importedNodes);
 		this.svg = currentSvg;
+		this._ensureRoleStrokeStyles();
 	} else {
 		const svgElement = document.importNode(parsedSvg, true);
 		svgElement.setAttribute("id", svgElement.getAttribute("id") || "board");
 		svgElement.setAttribute("xmlns", SVG_NS);
 		this.appendChild(svgElement);
 		this.svg = svgElement;
+		this._ensureRoleStrokeStyles();
 	}
   }
 
@@ -625,11 +1067,15 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		return {
 		  ownerControl: sourceNode.getAttribute("data-owner-control"),
 		  pieceKind: sourceNode.getAttribute("data-piece-kind"),
+		  ownerUnit: sourceNode.getAttribute("data-owner-unit"),
 		  instanceId: sourceNode.getAttribute("data-instance-id"),
 		};
 	  })
 	  .filter((metadata) =>
-		metadata?.ownerControl || metadata?.pieceKind || metadata?.instanceId
+		metadata?.ownerControl ||
+		metadata?.pieceKind ||
+		metadata?.ownerUnit ||
+		metadata?.instanceId
 	  );
   }
 
@@ -689,6 +1135,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 
 	if (metadata.pieceKind) {
 	  node.setAttribute("data-piece-kind", metadata.pieceKind);
+	}
+
+	if (metadata.ownerUnit) {
+	  node.setAttribute("data-owner-unit", metadata.ownerUnit);
 	}
 
 	if (metadata.instanceId) {

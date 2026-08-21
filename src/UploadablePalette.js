@@ -7,6 +7,34 @@ const DEFAULT_OPENCV_ENDPOINT =
   "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com";
 const DEFAULT_REFERENCE_WIDTH_MM = 215.9;
 const DEFAULT_REFERENCE_HEIGHT_MM = 279.4;
+const SVG_GRAPHIC_TAGS = [
+  "circle",
+  "ellipse",
+  "image",
+  "line",
+  "path",
+  "polygon",
+  "polyline",
+  "rect",
+  "use",
+];
+const SVG_GRAPHIC_SELECTOR = SVG_GRAPHIC_TAGS.join(",");
+const SVG_BOUNDARY_IGNORE_SELECTOR =
+  "clipPath,defs,filter,linearGradient,marker,mask,metadata,pattern,radialGradient,symbol";
+const SVG_TRANSFORMABLE_TAGS = new Set([
+  ...SVG_GRAPHIC_TAGS,
+  "a",
+  "g",
+  "switch",
+]);
+const SVG_UNWRAPPABLE_GROUP_ATTRIBUTES = new Set([
+  "id",
+  "transform",
+]);
+const SVG_UNWRAPPABLE_GROUP_ATTRIBUTE_PREFIXES = [
+  "inkscape:",
+  "sodipodi:",
+];
 
 const DEFAULT_CONTROLS = `
   <piece-quantity-control
@@ -1314,7 +1342,9 @@ export class UploadablePalette extends HTMLElement {
   }
 
   _stripActiveSvgContent(svg) {
-    svg.querySelectorAll("script, foreignObject").forEach((node) => node.remove());
+    svg.querySelectorAll("script, foreignObject, text").forEach((node) =>
+      node.remove(),
+    );
 
     const allElements = [svg, ...Array.from(svg.querySelectorAll("*"))];
     for (const element of allElements) {
@@ -1324,6 +1354,156 @@ export class UploadablePalette extends HTMLElement {
         }
       }
     }
+  }
+
+  _shapePieceSvgs(svg) {
+    const clusters = this._svgGraphicClusters(svg);
+
+    if (clusters.length <= 1) {
+      return [svg.cloneNode(true)];
+    }
+
+    return clusters.map((cluster) =>
+      this._cloneSvgGraphicCluster(cluster.sourceSvg, cluster),
+    );
+  }
+
+  _svgGraphicClusters(svg) {
+    if (!document.body || typeof svg.cloneNode !== "function") {
+      return [];
+    }
+
+    const measuringSvg = svg.cloneNode(true);
+    measuringSvg.removeAttribute("id");
+    measuringSvg.style.position = "absolute";
+    measuringSvg.style.left = "-100000px";
+    measuringSvg.style.top = "-100000px";
+    measuringSvg.style.visibility = "hidden";
+    measuringSvg.style.pointerEvents = "none";
+    measuringSvg.style.overflow = "visible";
+
+    document.body.appendChild(measuringSvg);
+
+    try {
+      const descriptors = this._svgGraphicDescriptors(measuringSvg);
+      const padding = this._svgClusterPadding(measuringSvg);
+      const clusters = [];
+
+      for (const descriptor of descriptors) {
+        const matchingClusters = clusters.filter((cluster) =>
+          this._boundsOverlap(cluster.bounds, descriptor.bounds, padding),
+        );
+
+        if (matchingClusters.length === 0) {
+          clusters.push({
+            bounds: descriptor.bounds,
+            graphics: [descriptor.graphic],
+          });
+          continue;
+        }
+
+        const [targetCluster] = matchingClusters;
+        targetCluster.graphics.push(descriptor.graphic);
+        targetCluster.bounds = this._unionBounds(
+          targetCluster.bounds,
+          descriptor.bounds,
+        );
+
+        for (const cluster of matchingClusters.slice(1)) {
+          targetCluster.graphics.push(...cluster.graphics);
+          targetCluster.bounds = this._unionBounds(
+            targetCluster.bounds,
+            cluster.bounds,
+          );
+          clusters.splice(clusters.indexOf(cluster), 1);
+        }
+      }
+
+      return clusters
+        .filter((cluster) => this._isSubstantiveSvgCluster(cluster, measuringSvg))
+        .map((cluster) => ({
+          bounds: cluster.bounds,
+          sourceSvg: measuringSvg,
+          graphics: cluster.graphics,
+        }));
+    } catch {
+      return [];
+    } finally {
+      measuringSvg.remove();
+    }
+  }
+
+  _svgGraphicDescriptors(svg) {
+    return Array.from(svg.querySelectorAll(SVG_GRAPHIC_SELECTOR))
+      .filter((node) => !node.closest?.(SVG_BOUNDARY_IGNORE_SELECTOR))
+      .map((graphic) => ({
+        graphic,
+        bounds: this._measureSvgGraphicBounds(graphic, svg),
+      }))
+      .filter((descriptor) => descriptor.bounds);
+  }
+
+  _svgClusterPadding(svg) {
+    return Math.max(1, this._svgSourceScale(svg) * 4);
+  }
+
+  _isSubstantiveSvgCluster(cluster, svg) {
+    const scale = this._svgSourceScale(svg);
+    const width = cluster.bounds.width / scale;
+    const height = cluster.bounds.height / scale;
+
+    return width >= 1 || height >= 1;
+  }
+
+  _boundsOverlap(a, b, padding = 0) {
+    return (
+      a.x <= b.x + b.width + padding &&
+      a.x + a.width + padding >= b.x &&
+      a.y <= b.y + b.height + padding &&
+      a.y + a.height + padding >= b.y
+    );
+  }
+
+  _cloneSvgGraphicCluster(svg, cluster) {
+    const clone = svg.cloneNode(true);
+    const sourceElements = Array.from(svg.querySelectorAll("*"));
+    const clonedElements = Array.from(clone.querySelectorAll("*"));
+    const cloneBySource = new Map(
+      sourceElements.map((element, index) => [element, clonedElements[index]]),
+    );
+    const keep = new Set([clone]);
+
+    for (const graphic of cluster.graphics) {
+      for (
+        let node = graphic;
+        node instanceof SVGElement && node !== svg;
+        node = node.parentElement
+      ) {
+        const clonedNode = cloneBySource.get(node);
+        if (clonedNode) {
+          keep.add(clonedNode);
+        }
+      }
+    }
+
+    Array.from(clone.querySelectorAll("*"))
+      .reverse()
+      .forEach((node) => {
+        if (keep.has(node) || this._isPreservedSvgContextNode(node)) {
+          return;
+        }
+
+        node.remove();
+      });
+
+    return clone;
+  }
+
+  _isPreservedSvgContextNode(node) {
+    return (
+      ["defs", "desc", "style", "title"].includes(node.localName) ||
+      Boolean(node.closest?.("defs,style"))
+    );
   }
 
   _createPreviewSvg(uploadedSvg) {
@@ -1354,25 +1534,400 @@ export class UploadablePalette extends HTMLElement {
       shapeSvg.setAttribute("viewBox", this._viewBoxFromSize(shapeSvg));
     }
 
+    const templateSvg = shapeSvg.cloneNode(false);
+    const pieceSvgs = this._shapePieceSvgs(shapeSvg);
+
+    for (const pieceSvg of pieceSvgs) {
+      templateSvg.appendChild(this._createShapeRoot(pieceSvg));
+    }
+
+    template.content.appendChild(templateSvg);
+
+    return template;
+  }
+
+  _createShapeRoot(pieceSvg) {
+    const visibleBounds = this._measureSvgVisibleBounds(pieceSvg);
+    const sourceScale = this._svgSourceScale(pieceSvg);
     const wrapper = document.createElementNS(SVG_NS, "g");
     wrapper.setAttribute("data-draggable", "true");
     wrapper.setAttribute("role", "garment");
     wrapper.setAttribute("pointer-events", "all");
 
-    while (shapeSvg.firstChild) {
-      wrapper.appendChild(shapeSvg.firstChild);
+    const normalizingTransform = this._svgNormalizingTransform(
+      visibleBounds,
+      sourceScale,
+    );
+
+    this._appendShapeChildren(wrapper, pieceSvg, normalizingTransform);
+
+    return wrapper;
+  }
+
+  _appendShapeChildren(target, sourceParent, inheritedTransform = "") {
+    for (const child of Array.from(sourceParent.childNodes)) {
+      if (this._isUnwrappableShapeGroup(child)) {
+        this._appendShapeChildren(
+          target,
+          child,
+          this._svgTransformList(
+            inheritedTransform,
+            child.getAttribute("transform"),
+          ),
+        );
+        continue;
+      }
+
+      const clone = child.cloneNode(true);
+
+      if (
+        clone instanceof SVGElement &&
+        inheritedTransform &&
+        this._canReceiveStaticTransform(clone)
+      ) {
+        clone.setAttribute(
+          "transform",
+          this._svgTransformList(
+            inheritedTransform,
+            clone.getAttribute("transform"),
+          ),
+        );
+      }
+
+      target.appendChild(clone);
+    }
+  }
+
+  _isUnwrappableShapeGroup(node) {
+    return (
+      node instanceof SVGElement &&
+      node.localName === "g" &&
+      Array.from(node.attributes).every((attribute) =>
+        this._isUnwrappableGroupAttribute(attribute.name),
+      )
+    );
+  }
+
+  _isUnwrappableGroupAttribute(name) {
+    const normalizedName = name.toLowerCase();
+
+    return (
+      SVG_UNWRAPPABLE_GROUP_ATTRIBUTES.has(normalizedName) ||
+      SVG_UNWRAPPABLE_GROUP_ATTRIBUTE_PREFIXES.some((prefix) =>
+        normalizedName.startsWith(prefix),
+      )
+    );
+  }
+
+  _canReceiveStaticTransform(node) {
+    return SVG_TRANSFORMABLE_TAGS.has(node.localName);
+  }
+
+  _svgTransformList(...transforms) {
+    return transforms
+      .map((transform) => transform?.trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  _svgSourceScale(svg) {
+    const descriptionText = Array.from(svg.querySelectorAll("desc"))
+      .map((desc) => desc.textContent || "")
+      .join(" ");
+
+    if (!/\.dxf\b/i.test(descriptionText)) {
+      return 1;
     }
 
-    shapeSvg.appendChild(wrapper);
-    template.content.appendChild(shapeSvg);
+    const scaleMatch = descriptionText.match(/\bscale\s*=\s*([0-9]*\.?[0-9]+)/i);
+    const scale = scaleMatch ? Number.parseFloat(scaleMatch[1]) : 1;
 
-    return template;
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+  }
+
+  _svgNormalizingTransform(bounds, sourceScale = 1) {
+    const scale = 1 / sourceScale;
+    const x = bounds ? -bounds.x * scale : 0;
+    const y = bounds ? -bounds.y * scale : 0;
+    const hasScale = Math.abs(scale - 1) > 0.0001;
+    const hasTranslation = x !== 0 || y !== 0;
+
+    if (hasScale) {
+      return `matrix(${this._formatSvgNumber(scale)} 0 0 ${this._formatSvgNumber(scale)} ${this._formatSvgNumber(x)} ${this._formatSvgNumber(y)})`;
+    }
+
+    if (hasTranslation) {
+      return `translate(${this._formatSvgNumber(x)}, ${this._formatSvgNumber(y)})`;
+    }
+
+    return "";
+  }
+
+  _measureSvgVisibleBounds(svg) {
+    if (!document.body || typeof svg.cloneNode !== "function") {
+      return null;
+    }
+
+    const measuringSvg = svg.cloneNode(true);
+    measuringSvg.removeAttribute("id");
+    measuringSvg.style.position = "absolute";
+    measuringSvg.style.left = "-100000px";
+    measuringSvg.style.top = "-100000px";
+    measuringSvg.style.visibility = "hidden";
+    measuringSvg.style.pointerEvents = "none";
+    measuringSvg.style.overflow = "visible";
+
+    document.body.appendChild(measuringSvg);
+
+    try {
+      const graphics = Array.from(
+        measuringSvg.querySelectorAll(SVG_GRAPHIC_SELECTOR),
+      ).filter(
+        (node) => !node.closest?.(SVG_BOUNDARY_IGNORE_SELECTOR),
+      );
+
+      return graphics.reduce((bounds, graphic) => {
+        const graphicBounds = this._measureSvgGraphicBounds(
+          graphic,
+          measuringSvg,
+        );
+
+        return this._unionBounds(bounds, graphicBounds);
+      }, null);
+    } catch {
+      return null;
+    } finally {
+      measuringSvg.remove();
+    }
+  }
+
+  _measureSvgGraphicBounds(graphic, rootSvg) {
+    if (typeof graphic.getBBox !== "function") {
+      return null;
+    }
+
+    const box = graphic.getBBox();
+
+    if (
+      !Number.isFinite(box.x) ||
+      !Number.isFinite(box.y) ||
+      !Number.isFinite(box.width) ||
+      !Number.isFinite(box.height) ||
+      (box.width === 0 && box.height === 0)
+    ) {
+      return null;
+    }
+
+    const matrix = this._combinedSvgTransform(graphic, rootSvg);
+
+    return this._transformedBounds(box, matrix);
+  }
+
+  _combinedSvgTransform(element, rootSvg) {
+    const chain = [];
+
+    for (
+      let node = element;
+      node instanceof SVGElement;
+      node = node.parentElement
+    ) {
+      chain.unshift(node);
+
+      if (node === rootSvg) {
+        break;
+      }
+    }
+
+    return chain.reduce(
+      (matrix, node) =>
+        this._multiplySvgMatrices(
+          matrix,
+          this._svgTransformMatrix(node.getAttribute("transform")),
+        ),
+      this._identitySvgMatrix(),
+    );
+  }
+
+  _svgTransformMatrix(transform) {
+    let matrix = this._identitySvgMatrix();
+    const pattern = /([a-zA-Z]+)\(([^)]*)\)/g;
+    let match;
+
+    while ((match = pattern.exec(transform || ""))) {
+      const command = match[1].toLowerCase();
+      const values = match[2]
+        .trim()
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map((value) => Number.parseFloat(value));
+
+      matrix = this._multiplySvgMatrices(
+        matrix,
+        this._svgTransformCommandMatrix(command, values),
+      );
+    }
+
+    return matrix;
+  }
+
+  _svgTransformCommandMatrix(command, values) {
+    switch (command) {
+      case "matrix":
+        if (values.length >= 6) {
+          return {
+            a: values[0],
+            b: values[1],
+            c: values[2],
+            d: values[3],
+            e: values[4],
+            f: values[5],
+          };
+        }
+        break;
+      case "translate":
+        return this._svgTranslateMatrix(values[0] || 0, values[1] || 0);
+      case "scale":
+        return this._svgScaleMatrix(
+          values[0] ?? 1,
+          values.length > 1 ? values[1] : values[0],
+        );
+      case "rotate":
+        return this._svgRotateMatrix(
+          values[0] || 0,
+          values[1],
+          values[2],
+        );
+      case "skewx":
+        return this._svgSkewXMatrix(values[0] || 0);
+      case "skewy":
+        return this._svgSkewYMatrix(values[0] || 0);
+    }
+
+    return this._identitySvgMatrix();
+  }
+
+  _identitySvgMatrix() {
+    return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  }
+
+  _svgTranslateMatrix(x, y = 0) {
+    return { a: 1, b: 0, c: 0, d: 1, e: x, f: y };
+  }
+
+  _svgScaleMatrix(x, y = x) {
+    return { a: x, b: 0, c: 0, d: y, e: 0, f: 0 };
+  }
+
+  _svgRotateMatrix(angle, cx, cy) {
+    const radians = (angle * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const rotate = { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+      return rotate;
+    }
+
+    return this._multiplySvgMatrices(
+      this._multiplySvgMatrices(
+        this._svgTranslateMatrix(cx, cy),
+        rotate,
+      ),
+      this._svgTranslateMatrix(-cx, -cy),
+    );
+  }
+
+  _svgSkewXMatrix(angle) {
+    return {
+      a: 1,
+      b: 0,
+      c: Math.tan((angle * Math.PI) / 180),
+      d: 1,
+      e: 0,
+      f: 0,
+    };
+  }
+
+  _svgSkewYMatrix(angle) {
+    return {
+      a: 1,
+      b: Math.tan((angle * Math.PI) / 180),
+      c: 0,
+      d: 1,
+      e: 0,
+      f: 0,
+    };
+  }
+
+  _multiplySvgMatrices(a, b) {
+    return {
+      a: a.a * b.a + a.c * b.b,
+      b: a.b * b.a + a.d * b.b,
+      c: a.a * b.c + a.c * b.d,
+      d: a.b * b.c + a.d * b.d,
+      e: a.a * b.e + a.c * b.f + a.e,
+      f: a.b * b.e + a.d * b.f + a.f,
+    };
+  }
+
+  _transformedBounds(box, matrix) {
+    const points = [
+      { x: box.x, y: box.y },
+      { x: box.x + box.width, y: box.y },
+      { x: box.x, y: box.y + box.height },
+      { x: box.x + box.width, y: box.y + box.height },
+    ].map((point) => this._transformSvgPoint(point, matrix));
+
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const minX = Math.min(...xs);
+    const minY = Math.min(...ys);
+    const maxX = Math.max(...xs);
+    const maxY = Math.max(...ys);
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+  }
+
+  _transformSvgPoint(point, matrix) {
+    if (!matrix) return point;
+
+    return {
+      x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+      y: matrix.b * point.x + matrix.d * point.y + matrix.f,
+    };
+  }
+
+  _unionBounds(a, b) {
+    if (!b) return a;
+    if (!a) return b;
+
+    const minX = Math.min(a.x, b.x);
+    const minY = Math.min(a.y, b.y);
+    const maxX = Math.max(a.x + a.width, b.x + b.width);
+    const maxY = Math.max(a.y + a.height, b.y + b.height);
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
   }
 
   _viewBoxFromSize(svg) {
     const width = Number.parseFloat(svg.getAttribute("width")) || 100;
     const height = Number.parseFloat(svg.getAttribute("height")) || 100;
     return `0 0 ${width} ${height}`;
+  }
+
+  _formatSvgNumber(value) {
+    const rounded = Math.abs(value) < 0.0001 ? 0 : Number(value.toFixed(4));
+    return String(rounded);
   }
 
   _numberAttribute(name, fallback) {

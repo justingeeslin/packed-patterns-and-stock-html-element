@@ -492,26 +492,66 @@ export class PieceQuantityControl extends HTMLElement {
 
   _reconcileQuantity(desiredCount) {
 	const currentNodes = this._getOwnedNodes(this.boardSvgElement);
-	const currentCount = currentNodes.length;
+	const currentUnits = this._getOwnedUnits(currentNodes);
+	const currentCount = currentUnits.length;
 	const delta = desiredCount - currentCount;
 
 	if (delta > 0) {
+	  let nextGridIndex = currentNodes.length;
+
 	  for (let i = 0; i < delta; i += 1) {
-		const node = this._createOwnedNode(currentCount + i);
-		this.boardSvgElement.appendChild(node);
+		const nodes = this._createOwnedNodes(currentCount + i, nextGridIndex);
+
+		for (const node of nodes) {
+		  this.boardSvgElement.appendChild(node);
+		}
+
+		nextGridIndex += nodes.length;
 	  }
 	} else if (delta < 0) {
-	  currentNodes.slice(delta).forEach((node) => node.remove());
+	  currentUnits
+		.slice(delta)
+		.flatMap((unit) => unit.nodes)
+		.forEach((node) => node.remove());
 	}
   }
 
-  _getOwnedNodes(board) {
-	return Array.from(this.boardSvgElement.querySelectorAll((
+  _getOwnedNodes(board = this.boardSvgElement) {
+	if (!board) return [];
+
+	return Array.from(board.querySelectorAll((
 	  `[data-owner-control="${CSS.escape(this.ownerId)}"][data-piece-kind="${CSS.escape(this.pieceKind)}"]`
 	)));
   }
 
-_createOwnedNode(index) {
+  _getOwnedUnits(nodes) {
+	const units = new Map();
+
+	nodes.forEach((node, index) => {
+	  const key =
+		node.getAttribute("data-owner-unit") ||
+		node.getAttribute("data-instance-id") ||
+		`untracked-${index}`;
+
+	  if (!units.has(key)) {
+		units.set(key, {
+		  key,
+		  nodes: [],
+		});
+	  }
+
+	  units.get(key).nodes.push(node);
+	});
+
+	return Array.from(units.values());
+  }
+
+  _createOwnedNode(index) {
+	const [node] = this._createOwnedNodes(index, index);
+	return node;
+  }
+
+  _createOwnedNodes(unitIndex, startGridIndex = unitIndex) {
 	const template = this.shapeTemplate;
 	if (!template) {
 	  throw new Error(`Missing <template slot="shape"> in ${this.tagName.toLowerCase()}`);
@@ -529,25 +569,43 @@ _createOwnedNode(index) {
 		'Shape template must contain an <svg> root inside <template slot="shape">'
 	  );
 	}
-  
-	// Prefer the first child inside the svg, usually a <g>.
-	const root = Array.from(svgRoot.children).find(
-	  (node) => node instanceof SVGElement
-	);
-  
-	if (!root) {
+
+	const roots = this._templateShapeRoots(svgRoot);
+
+	if (roots.length === 0) {
 	  throw new Error(
 		"Shape template SVG must contain one root SVG child element, usually a <g>"
 	  );
 	}
-  
-	root.setAttribute("data-owner-control", this.ownerId);
-	root.setAttribute("data-piece-kind", this.pieceKind);
-	root.setAttribute("data-instance-id", `${this.ownerId}-${this._localCounter++}`);
-  
-	this._positionNode(root, index);
-  
-	return root;
+
+	const unitId = `${this.ownerId}-${unitIndex}`;
+
+	return roots.map((sourceRoot, partIndex) => {
+	  const root = sourceRoot.cloneNode(true);
+
+	  root.setAttribute("data-owner-control", this.ownerId);
+	  root.setAttribute("data-piece-kind", this.pieceKind);
+	  root.setAttribute("data-owner-unit", unitId);
+	  root.setAttribute("data-instance-id", `${this.ownerId}-${this._localCounter++}`);
+
+	  this._positionNode(root, startGridIndex + partIndex);
+
+	  return root;
+	});
+  }
+
+  _templateShapeRoots(svgRoot) {
+	const nonShapeTags = new Set([
+	  "defs",
+	  "desc",
+	  "metadata",
+	  "style",
+	  "title",
+	]);
+
+	return Array.from(svgRoot.children).filter(
+	  (node) => node instanceof SVGElement && !nonShapeTags.has(node.localName),
+	);
   }
 
   _positionNode(node, index) {

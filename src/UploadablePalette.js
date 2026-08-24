@@ -727,6 +727,8 @@ export class UploadablePalette extends HTMLElement {
 
   addSvgControl(svgText, fileName = "uploaded.svg", options = {}) {
     const uploadedSvg = this._parseSvg(svgText);
+    this._logSvgDescriptionDetails(uploadedSvg, fileName);
+
     const baseName = this._basename(fileName);
     const label = this._humanizeName(baseName);
     const pieceKind = this._uniquePieceKind(baseName);
@@ -1474,11 +1476,11 @@ export class UploadablePalette extends HTMLElement {
   }
 
   _svgClusterPadding(svg) {
-    return Math.max(1, this._svgSourcePixelsPerMm(svg) * 4);
+    return Math.max(1, this._svgSourcePixelsPerMm() * 4);
   }
 
   _isSubstantiveSvgCluster(cluster, svg) {
-    const sourcePixelsPerMm = this._svgSourcePixelsPerMm(svg);
+    const sourcePixelsPerMm = this._svgSourcePixelsPerMm();
     const width = cluster.bounds.width / sourcePixelsPerMm;
     const height = cluster.bounds.height / sourcePixelsPerMm;
 
@@ -1578,7 +1580,7 @@ export class UploadablePalette extends HTMLElement {
 
   _createShapeRoot(pieceSvg) {
     const visibleBounds = this._measureSvgVisibleBounds(pieceSvg);
-    const sourcePixelsPerMm = this._svgSourcePixelsPerMm(pieceSvg);
+    const sourcePixelsPerMm = this._svgSourcePixelsPerMm();
     const wrapper = document.createElementNS(SVG_NS, "g");
     wrapper.setAttribute("data-draggable", "true");
     wrapper.setAttribute("role", "garment");
@@ -1660,25 +1662,40 @@ export class UploadablePalette extends HTMLElement {
       .join(" ");
   }
 
-  _svgSourcePixelsPerMm(svg) {
-    return this._svgDxfPixelsPerMm(svg) || this.uploadedSvgPixelsPerMm;
+  _svgSourcePixelsPerMm() {
+    return this.uploadedSvgPixelsPerMm;
   }
 
-  _svgDxfPixelsPerMm(svg) {
-    const descriptionText = Array.from(svg.querySelectorAll("desc"))
-      .map((desc) => desc.textContent || "")
-      .join(" ");
+  _logSvgDescriptionDetails(svg, fileName) {
+    const details = this._svgDescriptionDetails(svg);
 
-    if (!SVG_DXF_DESCRIPTION_PATTERN.test(descriptionText)) {
+    if (!details) return;
+
+    console.info?.("UploadablePalette: uploaded SVG description metadata", {
+      fileName,
+      ...details,
+    });
+  }
+
+  _svgDescriptionDetails(svg) {
+    const descriptions = Array.from(svg.querySelectorAll("desc"))
+      .map((desc) => desc.textContent?.trim() || "")
+      .filter(Boolean);
+
+    if (descriptions.length === 0) {
       return null;
     }
 
+    const descriptionText = descriptions.join(" ");
     const scaleMatch = descriptionText.match(SVG_DXF_SCALE_PATTERN);
-    const pixelsPerMm = scaleMatch ? Number.parseFloat(scaleMatch[1]) : NaN;
+    const scale = scaleMatch ? Number.parseFloat(scaleMatch[1]) : null;
 
-    return Number.isFinite(pixelsPerMm) && pixelsPerMm > 0
-      ? pixelsPerMm
-      : null;
+    return {
+      descriptions,
+      descriptionText,
+      isDxf: SVG_DXF_DESCRIPTION_PATTERN.test(descriptionText),
+      scale: Number.isFinite(scale) ? scale : null,
+    };
   }
 
   _svgNormalizingTransform(

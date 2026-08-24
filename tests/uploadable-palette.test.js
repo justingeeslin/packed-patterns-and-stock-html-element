@@ -839,7 +839,7 @@ describe("UploadablePalette", () => {
     );
   });
 
-  test("normalizes DXF SVG export scale metadata before adding pieces to the board", async () => {
+  test("logs DXF SVG export scale metadata without scaling uploaded geometry", async () => {
     const { palette, board } = createFixture();
 
     const [event] = await uploadFiles(palette, [
@@ -850,8 +850,20 @@ describe("UploadablePalette", () => {
     const wrapper = template.content.querySelector('g[role="garment"]');
 
     expect(wrapper.hasAttribute("transform")).toBe(false);
-    expect(wrapper.querySelector("#scaled-path").getAttribute("transform")).toBe(
-      "matrix(0.0394 0 0 0.0394 0 0)",
+    expect(wrapper.querySelector("#scaled-path").hasAttribute("transform")).toBe(
+      false,
+    );
+    expect(console.info).toHaveBeenCalledWith(
+      "UploadablePalette: uploaded SVG description metadata",
+      expect.objectContaining({
+        fileName: "scaled-dxf.svg",
+        isDxf: true,
+        scale: 25.4,
+        descriptionText: expect.stringContaining("scale = 25.400000"),
+        descriptions: expect.arrayContaining([
+          expect.stringContaining("sample.dxf"),
+        ]),
+      }),
     );
 
     await setQuantity(control, 1);
@@ -862,13 +874,13 @@ describe("UploadablePalette", () => {
 
     expect(piece).not.toBeNull();
     expect(piece.getAttribute("transform")).toBe("translate(80, 80)");
-    expect(piece.querySelector("#scaled-path").getAttribute("transform")).toBe(
-      "matrix(0.0394 0 0 0.0394 0 0)",
+    expect(piece.querySelector("#scaled-path").hasAttribute("transform")).toBe(
+      false,
     );
     expect(piece.querySelector("#scaled-path")).not.toBeNull();
   });
 
-  test("defaults uploaded board geometry to one pixel per millimeter", async () => {
+  test("defaults uploaded board geometry to one pixel per millimeter without SVG desc scaling", async () => {
     const { palette } = createFixture();
 
     const [event] = await uploadFiles(palette, [
@@ -878,12 +890,10 @@ describe("UploadablePalette", () => {
     const path = template.content.querySelector("#scaled-path");
 
     expect(palette.boardPixelsPerMm).toBe(1);
-    expect(path.getAttribute("transform")).toBe(
-      "matrix(0.0394 0 0 0.0394 0 0)",
-    );
+    expect(path.hasAttribute("transform")).toBe(false);
   });
 
-  test("uses DXF pixels-per-millimeter metadata before the SVG fallback", async () => {
+  test("uses the SVG fallback pixels-per-millimeter even when DXF metadata is present", async () => {
     const { palette } = createFixture();
 
     palette.uploadedSvgPixelsPerMm = 2;
@@ -895,7 +905,7 @@ describe("UploadablePalette", () => {
     const path = template.content.querySelector("#scaled-path");
 
     expect(path.getAttribute("transform")).toBe(
-      "matrix(0.0394 0 0 0.0394 0 0)",
+      "matrix(0.5 0 0 0.5 0 0)",
     );
   });
 

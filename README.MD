@@ -61,11 +61,9 @@ shows a Show Debug Images button without adding a new pattern control.
 
 Uploaded pattern geometry is normalized to the board coordinate system with
 `board-pixels-per-mm`, which defaults to `1`, meaning 1 board pixel equals 1 mm.
-SVGs without recognized physical scale metadata use
-`uploaded-svg-pixels-per-mm`, also defaulting to `1`. DXF SVG exports with
-metadata like `scale = 25.400000` use that value as their source pixels per
-millimeter, so a 25.4 px/mm DXF upload is scaled by `1 / 25.4` for the default
-board.
+Uploaded SVG geometry uses `uploaded-svg-pixels-per-mm`, also defaulting to `1`.
+SVG `<desc>` metadata, including DXF export details like `scale = 25.400000`,
+is logged for diagnostics only and does not change uploaded piece scale.
 
 The same settings can be changed from JavaScript:
 

@@ -7,6 +7,14 @@ const DEFAULT_OPENCV_ENDPOINT =
   "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com";
 const DEFAULT_REFERENCE_WIDTH_MM = 215.9;
 const DEFAULT_REFERENCE_HEIGHT_MM = 279.4;
+export const DEFAULT_BOARD_PIXELS_PER_MM = 1;
+export const DEFAULT_UPLOADED_SVG_PIXELS_PER_MM = 1;
+const SVG_NUMBER_PATTERN = "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?";
+const SVG_DXF_DESCRIPTION_PATTERN = /\.dxf\b/i;
+const SVG_DXF_SCALE_PATTERN = new RegExp(
+  `\\bscale\\s*=\\s*(${SVG_NUMBER_PATTERN})`,
+  "i",
+);
 const SVG_GRAPHIC_TAGS = [
   "circle",
   "ellipse",
@@ -645,6 +653,28 @@ export class UploadablePalette extends HTMLElement {
 
   get referenceHeightMm() {
     return this._numberAttribute("reference-height-mm", DEFAULT_REFERENCE_HEIGHT_MM);
+  }
+
+  get boardPixelsPerMm() {
+    return this._positiveNumberAttribute(
+      "board-pixels-per-mm",
+      DEFAULT_BOARD_PIXELS_PER_MM,
+    );
+  }
+
+  set boardPixelsPerMm(value) {
+    this._setOptionalNumberAttribute("board-pixels-per-mm", value);
+  }
+
+  get uploadedSvgPixelsPerMm() {
+    return this._positiveNumberAttribute(
+      "uploaded-svg-pixels-per-mm",
+      DEFAULT_UPLOADED_SVG_PIXELS_PER_MM,
+    );
+  }
+
+  set uploadedSvgPixelsPerMm(value) {
+    this._setOptionalNumberAttribute("uploaded-svg-pixels-per-mm", value);
   }
 
   _onFileInputChange = async (event) => {
@@ -1444,13 +1474,13 @@ export class UploadablePalette extends HTMLElement {
   }
 
   _svgClusterPadding(svg) {
-    return Math.max(1, this._svgSourceScale(svg) * 4);
+    return Math.max(1, this._svgSourcePixelsPerMm(svg) * 4);
   }
 
   _isSubstantiveSvgCluster(cluster, svg) {
-    const scale = this._svgSourceScale(svg);
-    const width = cluster.bounds.width / scale;
-    const height = cluster.bounds.height / scale;
+    const sourcePixelsPerMm = this._svgSourcePixelsPerMm(svg);
+    const width = cluster.bounds.width / sourcePixelsPerMm;
+    const height = cluster.bounds.height / sourcePixelsPerMm;
 
     return width >= 1 || height >= 1;
   }
@@ -1548,7 +1578,7 @@ export class UploadablePalette extends HTMLElement {
 
   _createShapeRoot(pieceSvg) {
     const visibleBounds = this._measureSvgVisibleBounds(pieceSvg);
-    const sourceScale = this._svgSourceScale(pieceSvg);
+    const sourcePixelsPerMm = this._svgSourcePixelsPerMm(pieceSvg);
     const wrapper = document.createElementNS(SVG_NS, "g");
     wrapper.setAttribute("data-draggable", "true");
     wrapper.setAttribute("role", "garment");
@@ -1556,7 +1586,7 @@ export class UploadablePalette extends HTMLElement {
 
     const normalizingTransform = this._svgNormalizingTransform(
       visibleBounds,
-      sourceScale,
+      sourcePixelsPerMm,
     );
 
     this._appendShapeChildren(wrapper, pieceSvg, normalizingTransform);
@@ -1630,23 +1660,36 @@ export class UploadablePalette extends HTMLElement {
       .join(" ");
   }
 
-  _svgSourceScale(svg) {
+  _svgSourcePixelsPerMm(svg) {
+    return this._svgDxfPixelsPerMm(svg) || this.uploadedSvgPixelsPerMm;
+  }
+
+  _svgDxfPixelsPerMm(svg) {
     const descriptionText = Array.from(svg.querySelectorAll("desc"))
       .map((desc) => desc.textContent || "")
       .join(" ");
 
-    if (!/\.dxf\b/i.test(descriptionText)) {
-      return 1;
+    if (!SVG_DXF_DESCRIPTION_PATTERN.test(descriptionText)) {
+      return null;
     }
 
-    const scaleMatch = descriptionText.match(/\bscale\s*=\s*([0-9]*\.?[0-9]+)/i);
-    const scale = scaleMatch ? Number.parseFloat(scaleMatch[1]) : 1;
+    const scaleMatch = descriptionText.match(SVG_DXF_SCALE_PATTERN);
+    const pixelsPerMm = scaleMatch ? Number.parseFloat(scaleMatch[1]) : NaN;
 
-    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+    return Number.isFinite(pixelsPerMm) && pixelsPerMm > 0
+      ? pixelsPerMm
+      : null;
   }
 
-  _svgNormalizingTransform(bounds, sourceScale = 1) {
-    const scale = 1 / sourceScale;
+  _svgNormalizingTransform(
+    bounds,
+    sourcePixelsPerMm = this.uploadedSvgPixelsPerMm,
+  ) {
+    const normalizedSourcePixelsPerMm = this._positiveNumber(
+      sourcePixelsPerMm,
+      this.uploadedSvgPixelsPerMm,
+    );
+    const scale = this.boardPixelsPerMm / normalizedSourcePixelsPerMm;
     const x = bounds ? -bounds.x * scale : 0;
     const y = bounds ? -bounds.y * scale : 0;
     const hasScale = Math.abs(scale - 1) > 0.0001;
@@ -1934,6 +1977,25 @@ export class UploadablePalette extends HTMLElement {
     const value = Number.parseFloat(this.getAttribute(name));
 
     return Number.isFinite(value) ? value : fallback;
+  }
+
+  _positiveNumberAttribute(name, fallback) {
+    return this._positiveNumber(this.getAttribute(name), fallback);
+  }
+
+  _positiveNumber(value, fallback) {
+    const number = Number.parseFloat(value);
+
+    return Number.isFinite(number) && number > 0 ? number : fallback;
+  }
+
+  _setOptionalNumberAttribute(name, value) {
+    if (value === null || value === undefined || value === "") {
+      this.removeAttribute(name);
+      return;
+    }
+
+    this.setAttribute(name, String(value));
   }
 
   _formatMillimeters(value) {

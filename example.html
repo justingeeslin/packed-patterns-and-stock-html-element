@@ -10,19 +10,23 @@
       endpoint="/__packaide_irregular_stock"
       tolerance="0.03"
       offset="0"
-      rotations="1"
-      persist="false"
-      include-stock="true"
-    >
+	      rotations="1"
+	      persist="false"
+	      include-stock="true"
+	      board-pixels-per-mm="1"
+	      grid-subdivisions-per-inch="4"
+	    >
       <svg
         id="board"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 520 320"
         width="520"
         height="320"
-        aria-label="Garment pieces and stock"
-      >
-        <polygon
+	        aria-label="Garment pieces and stock"
+	      >
+	        <rect class="board-background" x="0" y="0" width="520" height="320" fill="white"></rect>
+
+	        <polygon
           id="stock-1"
           role="stock"
           points="20,20 480,20 500,180 420,300 60,280 0,120"

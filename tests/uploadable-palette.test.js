@@ -868,6 +868,52 @@ describe("UploadablePalette", () => {
     expect(piece.querySelector("#scaled-path")).not.toBeNull();
   });
 
+  test("defaults uploaded board geometry to one pixel per millimeter", async () => {
+    const { palette } = createFixture();
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(DXF_SCALED_SVG, "scaled-dxf.svg"),
+    ]);
+    const template = event.detail.control.querySelector('template[slot="shape"]');
+    const path = template.content.querySelector("#scaled-path");
+
+    expect(palette.boardPixelsPerMm).toBe(1);
+    expect(path.getAttribute("transform")).toBe(
+      "matrix(0.0394 0 0 0.0394 0 0)",
+    );
+  });
+
+  test("uses DXF pixels-per-millimeter metadata before the SVG fallback", async () => {
+    const { palette } = createFixture();
+
+    palette.uploadedSvgPixelsPerMm = 2;
+
+    const [event] = await uploadFiles(palette, [
+      createSvgFile(DXF_SCALED_SVG, "scaled-dxf.svg"),
+    ]);
+    const template = event.detail.control.querySelector('template[slot="shape"]');
+    const path = template.content.querySelector("#scaled-path");
+
+    expect(path.getAttribute("transform")).toBe(
+      "matrix(0.0394 0 0 0.0394 0 0)",
+    );
+  });
+
+  test("customizes uploaded SVG source and board pixels per millimeter", async () => {
+    const { palette } = createFixture();
+
+    palette.uploadedSvgPixelsPerMm = 2;
+    palette.boardPixelsPerMm = 4;
+
+    const [event] = await uploadFiles(palette, [createSvgFile()]);
+    const template = event.detail.control.querySelector('template[slot="shape"]');
+    const path = template.content.querySelector("#front-path");
+
+    expect(palette.getAttribute("uploaded-svg-pixels-per-mm")).toBe("2");
+    expect(palette.getAttribute("board-pixels-per-mm")).toBe("4");
+    expect(path.getAttribute("transform")).toBe("matrix(2 0 0 2 -10 -10)");
+  });
+
   test("uses unique IDs for multiple uploads with the same filename", async () => {
     const { palette } = createFixture();
 

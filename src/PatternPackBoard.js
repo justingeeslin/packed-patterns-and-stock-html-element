@@ -6,6 +6,11 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 export const DEFAULT_PACKAIDE_ENDPOINT =
   "https://secure-refuge-29958-07dfc33a91ee.herokuapp.com/proxy/";
 const ROLE_STROKE_STYLE_ID = "pattern-pack-role-strokes";
+const INCH_GRID_STYLE_ID = "pattern-pack-inch-grid-styles";
+const MM_PER_INCH = 25.4;
+export const DEFAULT_BOARD_PIXELS_PER_MM = 1;
+export const DEFAULT_GRID_SUBDIVISIONS_PER_INCH = 4;
+export const DEFAULT_GRID_MAJOR_INCHES = 1;
 const DEFAULT_PACK_OPTIONS = {
   tolerance: 0.03,
   offset: 0,
@@ -22,6 +27,11 @@ const PACK_OPTION_ATTRIBUTES = {
   "stock-inset": "stock_inset",
   tolerance: "tolerance",
 };
+const GRID_OPTION_ATTRIBUTES = [
+  "board-pixels-per-mm",
+  "grid-subdivisions-per-inch",
+  "grid-major-inches",
+];
 const BOOLEAN_PACK_OPTIONS = new Set([
   "include_stock",
   "partial_solution",
@@ -100,18 +110,52 @@ ${SVG_STROKE_GRAPHIC_TAGS.map((tag) => `[role="stock"] ${tag}`).join(",\n")} {
   }
 }
 `;
+const INCH_GRID_CSS = `
+.grid-minor,
+.grid-inch-minor {
+  stroke: var(--pattern-pack-grid-minor, #dce4ee);
+  stroke-width: var(--pattern-pack-grid-minor-stroke-width, 1);
+  vector-effect: non-scaling-stroke;
+}
+
+.grid-major,
+.grid-inch-major {
+  stroke: var(--pattern-pack-grid-major, #b8c6d6);
+  stroke-width: var(--pattern-pack-grid-major-stroke-width, 2);
+  vector-effect: non-scaling-stroke;
+}
+
+@media (prefers-color-scheme: dark) {
+  .grid-minor,
+  .grid-inch-minor {
+    stroke: var(--pattern-pack-grid-minor-dark, var(--pattern-pack-grid-minor, #242d39));
+  }
+
+  .grid-major,
+  .grid-inch-major {
+    stroke: var(--pattern-pack-grid-major-dark, var(--pattern-pack-grid-major, #3b4656));
+  }
+}
+`;
+let nextInchGridId = 0;
 
 export class PatternPackBoard extends DraggableSvgBoard {
   static get observedAttributes() {
-	return ["endpoint", "pack-options", ...Object.keys(PACK_OPTION_ATTRIBUTES)];
+	return [
+	  "endpoint",
+	  "pack-options",
+	  ...Object.keys(PACK_OPTION_ATTRIBUTES),
+	  ...GRID_OPTION_ATTRIBUTES,
+	];
   }
 
   constructor() {
 	super();
 
-	this._observer = null;
-	this._syncTimer = null;
-	this._isConnected = false;
+		this._observer = null;
+		this._syncTimer = null;
+		this._isConnected = false;
+		this._inchGridIdPrefix = `pattern-pack-inch-grid-${nextInchGridId++}`;
 	
 	// Grid-like layout options
 	this.gap = 50;
@@ -129,23 +173,6 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		  margin: 0.5rem 0;
 		}
 
-		.status {
-		  margin: 0.5rem 0 0;
-		  color: #52606d;
-		}
-
-		.status:empty {
-		  display: none;
-		}
-
-		.status.error {
-		  color: #b42318;
-		}
-
-		.status.warning {
-		  color: #9a6700;
-		}
-
 		div {
 		  overflow: auto;
 		}
@@ -155,7 +182,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		<button id="syncBtn" type="button">Pack Garment Pattern Pieces</button>
 		<progress class="loading hidden"></progress>
 		<div class="content"></div>
-		<p class="status" role="status" aria-live="polite"></p>
+		<p class="status"></p>
 		<slot></slot>
 	  </div>
 	`;
@@ -253,12 +280,13 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		this.rightmostX = newRightmostX;
 	}
 	
-	connectedCallback() {
-		console.log("PatternPackBoard Connected")
-		super.connectedCallback?.();
-		this._ensureRoleStrokeStyles();
-		
-		if (this._isConnected) return;
+		connectedCallback() {
+			console.log("PatternPackBoard Connected")
+			super.connectedCallback?.();
+			this._ensureRoleStrokeStyles();
+			this._ensureInchGrid();
+			
+			if (this._isConnected) return;
 		this._isConnected = true;
 		
 		this._initializeRightmostX()
@@ -292,27 +320,66 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	  : configuredEndpoint;
   }
 
-  set endpoint(value) {
-	if (value === null || value === undefined) {
-	  this.removeAttribute("endpoint");
-	  return;
-	}
+	  set endpoint(value) {
+		if (value === null || value === undefined) {
+		  this.removeAttribute("endpoint");
+		  return;
+		}
+	
+		this.setAttribute("endpoint", String(value));
+	  }
 
-	this.setAttribute("endpoint", String(value));
-  }
+	  get boardPixelsPerMm() {
+		return this._positiveNumberAttribute(
+		  "board-pixels-per-mm",
+		  DEFAULT_BOARD_PIXELS_PER_MM,
+		);
+	  }
 
-	  attributeChangedCallback(name, oldValue, newValue) {
-	if (oldValue !== newValue && this.isConnected) {
-	  this._scheduleSync();
-	}
-  }
+	  set boardPixelsPerMm(value) {
+		this._setOptionalNumberAttribute("board-pixels-per-mm", value);
+	  }
+
+	  get gridSubdivisionsPerInch() {
+		return Math.max(
+		  1,
+		  Math.round(
+			this._positiveNumberAttribute(
+			  "grid-subdivisions-per-inch",
+			  DEFAULT_GRID_SUBDIVISIONS_PER_INCH,
+			),
+		  ),
+		);
+	  }
+
+	  set gridSubdivisionsPerInch(value) {
+		this._setOptionalNumberAttribute("grid-subdivisions-per-inch", value);
+	  }
+
+	  get gridMajorInches() {
+		return this._positiveNumberAttribute(
+		  "grid-major-inches",
+		  DEFAULT_GRID_MAJOR_INCHES,
+		);
+	  }
+
+	  set gridMajorInches(value) {
+		this._setOptionalNumberAttribute("grid-major-inches", value);
+	  }
+
+		  attributeChangedCallback(name, oldValue, newValue) {
+		if (oldValue === newValue || !this.isConnected) return;
+
+		if (GRID_OPTION_ATTRIBUTES.includes(name)) {
+		  this._ensureInchGrid();
+		  return;
+		}
+
+		this._scheduleSync();
+	  }
 
   get board() {
 	return this.shadowRoot.querySelector("draggable-svg-board");
-  }
-
-  get statusEl() {
-	return this.shadowRoot.querySelector(".status");
   }
 
   getPayload() {
@@ -350,10 +417,9 @@ export class PatternPackBoard extends DraggableSvgBoard {
 
   async syncNow() {
 	if (!this.endpoint) return null;
-	
-	this._setStatus("");
-	this.progressEl.classList.remove("hidden");
 
+	this.progressEl.classList.remove("hidden");
+	
 	// Disable the mutation observer - to be reconnected upon calling connectedCalback
 	const restoreObserver = Boolean(this._observer);
 	if (this._observer) {
@@ -396,15 +462,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 		
 		this._replaceBoardSvg(svgResults);
-		this._reportPackPlacement(packOutput);
 		
 		super.connectedCallback?.();
 	
 		return response;
-	} catch (error) {
-		this._setStatus(`Packing failed: ${error.message}`, "error");
-		this._dispatchSyncError(error);
-		throw error;
 	} finally {
 		this.progressEl.classList.add("hidden");
 		if (restoreObserver && this.isConnected && !this._observer) {
@@ -430,7 +491,13 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	this._syncTimer = setTimeout(() => {
 	  this._syncTimer = null;
 	  this.syncNow().catch((error) => {
-		console.error("Sync failed", error);
+		this.dispatchEvent(
+		  new CustomEvent("sync-error", {
+			detail: { error },
+			bubbles: true,
+			composed: true
+		  })
+		);
 	  });
 	}, 150);
 	  }
@@ -477,10 +544,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	});
   }
 
-  _ensureRoleStrokeStyles() {
-	if (!this.svg) return;
-
-	const defs = this._ensureBoardDefs();
+	  _ensureRoleStrokeStyles() {
+		if (!this.svg) return;
+	
+		const defs = this._ensureBoardDefs();
 	let style = defs.querySelector(`style#${ROLE_STROKE_STYLE_ID}`);
 
 	if (!style) {
@@ -489,12 +556,130 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	  style.setAttribute("data-pattern-pack-role-styles", "");
 	  defs.insertBefore(style, defs.firstChild);
 	}
+	
+		style.textContent = ROLE_STROKE_CSS;
+	  }
 
-	style.textContent = ROLE_STROKE_CSS;
-  }
+	  _ensureInchGrid() {
+		if (!this.svg) return;
 
-  _ensureBoardDefs() {
-	let defs = this.svg.querySelector(":scope > defs");
+		const defs = this._ensureBoardDefs();
+		this._ensureInchGridStyles(defs);
+
+		const minorId = `${this._inchGridIdPrefix}-minor`;
+		const majorId = `${this._inchGridIdPrefix}-major`;
+		const inchSize = MM_PER_INCH * this.boardPixelsPerMm;
+		const minorSize = inchSize / this.gridSubdivisionsPerInch;
+		const majorSize = inchSize * this.gridMajorInches;
+
+		this._syncInchGridPattern({
+		  defs,
+		  id: minorId,
+		  size: minorSize,
+		  className: "grid-minor grid-inch-minor",
+		  dataType: "minor",
+		});
+		this._syncInchGridPattern({
+		  defs,
+		  id: majorId,
+		  size: majorSize,
+		  className: "grid-major grid-inch-major",
+		  dataType: "major",
+		  fillPatternId: minorId,
+		});
+
+		const gridLayer = this._ensureInchGridLayer(majorId);
+		const viewBox = this._currentBoardViewBox();
+
+		if (viewBox) {
+		  this._syncBoardLayerBounds(viewBox);
+		}
+
+		gridLayer.setAttribute(
+		  "aria-label",
+		  `One-inch grid, ${this._formatBoardNumber(inchSize)} board units per inch`,
+		);
+	  }
+
+	  _ensureInchGridStyles(defs) {
+		let style = defs.querySelector(`style#${INCH_GRID_STYLE_ID}`);
+
+		if (!style) {
+		  style = document.createElementNS(SVG_NS, "style");
+		  style.id = INCH_GRID_STYLE_ID;
+		  style.setAttribute("data-pattern-pack-inch-grid-styles", "");
+		  defs.insertBefore(style, defs.firstChild);
+		}
+
+		style.textContent = INCH_GRID_CSS;
+	  }
+
+	  _syncInchGridPattern({
+		defs,
+		id,
+		size,
+		className,
+		dataType,
+		fillPatternId = "",
+	  }) {
+		let pattern = defs.querySelector(`pattern#${CSS.escape(id)}`);
+		const formattedSize = this._formatBoardNumber(size);
+
+		if (!pattern) {
+		  pattern = document.createElementNS(SVG_NS, "pattern");
+		  pattern.id = id;
+		  defs.appendChild(pattern);
+		}
+
+		pattern.setAttribute("data-pattern-pack-inch-grid", dataType);
+		pattern.setAttribute("width", formattedSize);
+		pattern.setAttribute("height", formattedSize);
+		pattern.setAttribute("patternUnits", "userSpaceOnUse");
+		pattern.replaceChildren();
+
+		if (fillPatternId) {
+		  const fill = document.createElementNS(SVG_NS, "rect");
+		  fill.setAttribute("width", formattedSize);
+		  fill.setAttribute("height", formattedSize);
+		  fill.setAttribute("fill", `url(#${fillPatternId})`);
+		  pattern.appendChild(fill);
+		}
+
+		const path = document.createElementNS(SVG_NS, "path");
+		path.setAttribute("class", className);
+		path.setAttribute("d", `M ${formattedSize} 0 H 0 V ${formattedSize}`);
+		path.setAttribute("fill", "none");
+		pattern.appendChild(path);
+	  }
+
+	  _ensureInchGridLayer(majorPatternId) {
+		let gridLayer = this.svg.querySelector('rect[data-board-layer="grid"]');
+
+		if (!gridLayer) {
+		  gridLayer = document.createElementNS(SVG_NS, "rect");
+		  gridLayer.setAttribute("data-board-layer", "grid");
+
+		  const background = this.svg.querySelector("rect.board-background");
+		  if (background?.nextSibling) {
+			this.svg.insertBefore(gridLayer, background.nextSibling);
+		  } else if (background) {
+			this.svg.appendChild(gridLayer);
+		  } else {
+			const defs = this.svg.querySelector(":scope > defs");
+			this.svg.insertBefore(gridLayer, defs ? defs.nextSibling : this.svg.firstChild);
+		  }
+		}
+
+		gridLayer.setAttribute("data-pattern-pack-inch-grid-layer", "");
+		gridLayer.setAttribute("fill", `url(#${majorPatternId})`);
+		gridLayer.setAttribute("stroke", "none");
+		gridLayer.setAttribute("pointer-events", "none");
+
+		return gridLayer;
+	  }
+	
+	  _ensureBoardDefs() {
+		let defs = this.svg.querySelector(":scope > defs");
 
 	if (!defs) {
 	  defs = document.createElementNS(SVG_NS, "defs");
@@ -924,79 +1109,36 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	return options;
   }
 
-  _booleanAttributeValue(value) {
-	if (value === "" || value === null) {
-	  return true;
-	}
+	  _booleanAttributeValue(value) {
+		if (value === "" || value === null) {
+		  return true;
+		}
+	
+		return !["0", "false", "no"].includes(String(value).toLowerCase());
+	  }
 
-	return !["0", "false", "no"].includes(String(value).toLowerCase());
-  }
+	  _positiveNumberAttribute(name, fallback) {
+		return this._positiveNumber(this.getAttribute(name), fallback);
+	  }
 
-  _setStatus(message, tone = "") {
-	if (!this.statusEl) return;
+	  _positiveNumber(value, fallback) {
+		const number = Number.parseFloat(value);
 
-	this.statusEl.textContent = message;
-	this.statusEl.classList.toggle("error", tone === "error");
-	this.statusEl.classList.toggle("warning", tone === "warning");
-  }
+		return Number.isFinite(number) && number > 0 ? number : fallback;
+	  }
 
-  _dispatchSyncError(error) {
-	this.dispatchEvent(
-	  new CustomEvent("sync-error", {
-		detail: { error },
-		bubbles: true,
-		composed: true
-	  })
-	);
-  }
+	  _setOptionalNumberAttribute(name, value) {
+		if (value === null || value === undefined || value === "") {
+		  this.removeAttribute(name);
+		  return;
+		}
 
-  _reportPackPlacement(output) {
-	const unplaced = this._countValue(output?.unplaced);
-	if (!unplaced) {
-	  this._setStatus("");
-	  return null;
-	}
-
-	const placed = this._countValue(output?.placed);
-	const message = this._packPlacementMessage({ placed, unplaced });
-
-	this._setStatus(message, "warning");
-	this.dispatchEvent(
-	  new CustomEvent("pack-incomplete", {
-		detail: {
-		  message,
-		  output,
-		  placed,
-		  unplaced
-		},
-		bubbles: true,
-		composed: true
-	  })
-	);
-
-	return message;
-  }
-
-  _packPlacementMessage({ placed, unplaced }) {
-	const unplacedLabel = unplaced === 1 ? "piece" : "pieces";
-
-	if (placed === null) {
-	  return `${unplaced} ${unplacedLabel} could not fit on the available stock.`;
-	}
-
-	const placedLabel = placed === 1 ? "piece" : "pieces";
-	const placedVerb = placed === 1 ? "was" : "were";
-	return `${placed} ${placedLabel} ${placedVerb} placed; ${unplaced} ${unplacedLabel} could not fit on the available stock.`;
-  }
-
-  _countValue(value) {
-	const count = Number(value);
-	return Number.isFinite(count) && count >= 0 ? Math.trunc(count) : null;
-  }
-
-  _viewBoxDimension(viewBox, index) {
-	if (!viewBox) {
-	  return null;
+		this.setAttribute(name, String(value));
+	  }
+	
+	  _viewBoxDimension(viewBox, index) {
+		if (!viewBox) {
+		  return null;
 	}
 
 	const value = Number(viewBox.trim().split(/[\s,]+/)[index]);
@@ -1053,18 +1195,20 @@ export class PatternPackBoard extends DraggableSvgBoard {
 
 		this._copyPackedSvgRootAttributes(parsedSvg, currentSvg);
 		this._normalizePackedGarments(importedNodes, garmentMetadata);
-		currentSvg.replaceChildren(...preservedNodes, ...importedNodes);
-		this.svg = currentSvg;
-		this._ensureRoleStrokeStyles();
-	} else {
-		const svgElement = document.importNode(parsedSvg, true);
-		svgElement.setAttribute("id", svgElement.getAttribute("id") || "board");
-		svgElement.setAttribute("xmlns", SVG_NS);
-		this.appendChild(svgElement);
-		this.svg = svgElement;
-		this._ensureRoleStrokeStyles();
-	}
-  }
+			currentSvg.replaceChildren(...preservedNodes, ...importedNodes);
+			this.svg = currentSvg;
+			this._ensureRoleStrokeStyles();
+			this._ensureInchGrid();
+		} else {
+			const svgElement = document.importNode(parsedSvg, true);
+			svgElement.setAttribute("id", svgElement.getAttribute("id") || "board");
+			svgElement.setAttribute("xmlns", SVG_NS);
+			this.appendChild(svgElement);
+			this.svg = svgElement;
+			this._ensureRoleStrokeStyles();
+			this._ensureInchGrid();
+		}
+	  }
 
   _parsePackedSvg(svgResult) {
 	let svgText = svgResult;

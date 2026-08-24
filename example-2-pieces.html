@@ -89,12 +89,14 @@
 		  offset="0"
 		  rotations="1"
 		  persist="false"
-		  include-stock="true"
-		  partial-solution="true"
-	  >
-		  <svg viewBox="0 0 1200 750" aria-label="Draggable garment parts" id="board">
-		  
-			  <rect x="0" y="0" width="1200" height="750" fill="url(#grid)"></rect>
+			  include-stock="true"
+			  partial-solution="true"
+			  board-pixels-per-mm="1"
+			  grid-subdivisions-per-inch="4"
+		  >
+			  <svg viewBox="0 0 1200 750" aria-label="Draggable garment parts" id="board">
+			  
+				  <rect class="board-background" x="0" y="0" width="1200" height="750" fill="white" stroke="none"></rect>
 		  
 			  <!-- T-shirt -->
 		  		<polygon id="full" points="561.00,90.00 441.00,29.00 350.00,0.00 327.00,15.00 286.00,21.00 235.00,17.00 202.00,2.00 123.00,30.00 0.00,95.00 60.00,202.00 110.00,191.00 111.00,570.00 458.00,566.00 455.00,186.00 505.00,199.00" fill="none" stroke="#0091EA" stroke-width="3" role="stock"/>

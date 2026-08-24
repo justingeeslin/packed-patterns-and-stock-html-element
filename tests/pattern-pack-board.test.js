@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
+  DEFAULT_BOARD_PIXELS_PER_MM,
+  DEFAULT_GRID_SUBDIVISIONS_PER_INCH,
   DEFAULT_PACKAIDE_ENDPOINT,
   PatternPackBoard,
 } from "../src/PatternPackBoard.js";
@@ -155,8 +157,8 @@ describe("PatternPackBoard", () => {
   });
 
   test("adds visible role-based strokes for garment and stock pieces", () => {
-	const { board } = createFixture({
-	  svg: `
+    const { board } = createFixture({
+      svg: `
 		<svg id="board" xmlns="${SVG_NS}" viewBox="0 0 40 40">
 		  <g id="stock-group" role="stock" style="stroke: none; stroke-width: 0">
 			<polygon id="stock-child" points="0,0 20,0 20,20 0,20" style="stroke: none; stroke-width: 0"></polygon>
@@ -175,12 +177,67 @@ describe("PatternPackBoard", () => {
 	expect(style.textContent).toContain("--pattern-pack-stock-stroke");
 	expect(stockStyle.stroke).toBe("rgb(0, 122, 61)");
 	expect(stockStyle.strokeWidth).toBe("3px");
-	expect(garmentStyle.stroke).toBe("rgb(0, 95, 204)");
-	expect(garmentStyle.strokeWidth).toBe("2.5px");
+    expect(garmentStyle.stroke).toBe("rgb(0, 95, 204)");
+    expect(garmentStyle.strokeWidth).toBe("2.5px");
+  });
+
+  test("adds a one-inch board grid when board geometry is one pixel per millimeter", () => {
+    const { board } = createFixture();
+    const svg = board.querySelector("svg");
+    const minorPattern = svg.querySelector(
+      'pattern[data-pattern-pack-inch-grid="minor"]',
+    );
+    const majorPattern = svg.querySelector(
+      'pattern[data-pattern-pack-inch-grid="major"]',
+    );
+    const gridLayer = svg.querySelector(
+      'rect[data-pattern-pack-inch-grid-layer]',
+    );
+
+    expect(board.boardPixelsPerMm).toBe(DEFAULT_BOARD_PIXELS_PER_MM);
+    expect(board.gridSubdivisionsPerInch).toBe(
+      DEFAULT_GRID_SUBDIVISIONS_PER_INCH,
+    );
+    expect(minorPattern.getAttribute("width")).toBe("6.35");
+    expect(minorPattern.getAttribute("height")).toBe("6.35");
+    expect(majorPattern.getAttribute("width")).toBe("25.4");
+    expect(majorPattern.getAttribute("height")).toBe("25.4");
+    expect(majorPattern.querySelector("rect").getAttribute("fill")).toBe(
+      `url(#${minorPattern.id})`,
+    );
+    expect(gridLayer.getAttribute("fill")).toBe(`url(#${majorPattern.id})`);
+    expect(gridLayer.getAttribute("aria-label")).toContain(
+      "25.4 board units per inch",
+    );
+  });
+
+  test("customizes the inch grid from board pixels per millimeter", () => {
+    const { board } = createFixture({
+      attributes:
+        ' board-pixels-per-mm="3" grid-subdivisions-per-inch="8" grid-major-inches="2"',
+    });
+    const svg = board.querySelector("svg");
+    const minorPattern = svg.querySelector(
+      'pattern[data-pattern-pack-inch-grid="minor"]',
+    );
+    const majorPattern = svg.querySelector(
+      'pattern[data-pattern-pack-inch-grid="major"]',
+    );
+
+    expect(board.boardPixelsPerMm).toBe(3);
+    expect(board.gridSubdivisionsPerInch).toBe(8);
+    expect(board.gridMajorInches).toBe(2);
+    expect(minorPattern.getAttribute("width")).toBe("9.525");
+    expect(majorPattern.getAttribute("width")).toBe("152.4");
+
+    board.boardPixelsPerMm = 1;
+
+    expect(minorPattern.getAttribute("width")).toBe("3.175");
+    expect(majorPattern.getAttribute("width")).toBe("50.8");
   });
 
   test("uses the default Packaide endpoint when none is configured", () => {
-	const board = document.createElement("pattern-pack-board");
+    const board = document.createElement("pattern-pack-board");
 
 	expect(board.endpoint).toBe(DEFAULT_PACKAIDE_ENDPOINT);
 	expect(board.getAttribute("endpoint")).toBeNull();
@@ -397,6 +454,14 @@ describe("PatternPackBoard", () => {
 	expect(liveSvg.getAttribute("viewBox")).toBe("0 0 1302 750");
 	expect(liveSvg.querySelector("#layout-grid")).not.toBeNull();
 	expect(liveSvg.querySelector("#grid-fill")).not.toBeNull();
+	expect(
+	  liveSvg.querySelector('pattern[data-pattern-pack-inch-grid="major"]')
+		.getAttribute("width"),
+	).toBe("25.4");
+	expect(
+	  liveSvg.querySelector("rect[data-pattern-pack-inch-grid-layer]")
+		.getAttribute("width"),
+	).toBe("1302");
 	expect(liveSvg.querySelector("#owned-piece-a")).toBeNull();
 	expect(packedStock).not.toBeNull();
 	expect(liveSvg.querySelector("#packed-stock-b")).not.toBeNull();

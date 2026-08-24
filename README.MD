@@ -17,6 +17,19 @@ const board = document.querySelector("pattern-pack-board");
 board.endpoint = "/api/pack/v2";
 ```
 
+The board renders an inch grid by default. With `board-pixels-per-mm="1"`,
+one major grid square is `25.4` board units, matching 1 inch when uploaded
+pieces are normalized to 1 px per mm. Minor grid lines default to quarter-inch
+subdivisions:
+
+```html
+<pattern-pack-board
+  board-pixels-per-mm="1"
+  grid-subdivisions-per-inch="4"
+  grid-major-inches="1">
+</pattern-pack-board>
+```
+
 ## UploadablePalette image conversions
 
 `<uploadable-palette>` adds uploaded SVG files directly as
@@ -29,6 +42,8 @@ SVG endpoint:
   board="board"
   photo-upload-endpoint="../upload.php"
   opencv-endpoint="https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com"
+  board-pixels-per-mm="1"
+  uploaded-svg-pixels-per-mm="1"
   reference-width-mm="215.9"
   reference-height-mm="279.4">
 </uploadable-palette>
@@ -43,6 +58,22 @@ the CV pipeline. When present, the generated `<piece-quantity-control>` shows a
 CV Debug button that opens a troubleshooting viewer with those images. Failed
 OpenCV responses can include the same field; in that case the upload error
 shows a Show Debug Images button without adding a new pattern control.
+
+Uploaded pattern geometry is normalized to the board coordinate system with
+`board-pixels-per-mm`, which defaults to `1`, meaning 1 board pixel equals 1 mm.
+SVGs without recognized physical scale metadata use
+`uploaded-svg-pixels-per-mm`, also defaulting to `1`. DXF SVG exports with
+metadata like `scale = 25.400000` use that value as their source pixels per
+millimeter, so a 25.4 px/mm DXF upload is scaled by `1 / 25.4` for the default
+board.
+
+The same settings can be changed from JavaScript:
+
+```js
+const palette = document.querySelector("uploadable-palette");
+palette.boardPixelsPerMm = 1;
+palette.uploadedSvgPixelsPerMm = 3.7795;
+```
 
 After a non-SVG file is uploaded, the component opens an HTML modal for the
 reference object width, height, and unit before the OpenCV request is sent.

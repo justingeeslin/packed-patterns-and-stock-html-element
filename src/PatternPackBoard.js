@@ -129,6 +129,23 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		  margin: 0.5rem 0;
 		}
 
+		.status {
+		  margin: 0.5rem 0 0;
+		  color: #52606d;
+		}
+
+		.status:empty {
+		  display: none;
+		}
+
+		.status.error {
+		  color: #b42318;
+		}
+
+		.status.warning {
+		  color: #9a6700;
+		}
+
 		div {
 		  overflow: auto;
 		}
@@ -138,7 +155,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		<button id="syncBtn" type="button">Pack Garment Pattern Pieces</button>
 		<progress class="loading hidden"></progress>
 		<div class="content"></div>
-		<p class="status"></p>
+		<p class="status" role="status" aria-live="polite"></p>
 		<slot></slot>
 	  </div>
 	`;
@@ -294,6 +311,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	return this.shadowRoot.querySelector("draggable-svg-board");
   }
 
+  get statusEl() {
+	return this.shadowRoot.querySelector(".status");
+  }
+
   getPayload() {
 	const garmentNodes = this._roleNodes("garment");
 	const stockNodes = this._roleNodes("stock");
@@ -329,9 +350,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
 
   async syncNow() {
 	if (!this.endpoint) return null;
-
-	this.progressEl.classList.remove("hidden");
 	
+	this._setStatus("");
+	this.progressEl.classList.remove("hidden");
+
 	// Disable the mutation observer - to be reconnected upon calling connectedCalback
 	const restoreObserver = Boolean(this._observer);
 	if (this._observer) {
@@ -374,10 +396,15 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 		
 		this._replaceBoardSvg(svgResults);
+		this._reportPackPlacement(packOutput);
 		
 		super.connectedCallback?.();
 	
 		return response;
+	} catch (error) {
+		this._setStatus(`Packing failed: ${error.message}`, "error");
+		this._dispatchSyncError(error);
+		throw error;
 	} finally {
 		this.progressEl.classList.add("hidden");
 		if (restoreObserver && this.isConnected && !this._observer) {
@@ -403,13 +430,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	this._syncTimer = setTimeout(() => {
 	  this._syncTimer = null;
 	  this.syncNow().catch((error) => {
-		this.dispatchEvent(
-		  new CustomEvent("sync-error", {
-			detail: { error },
-			bubbles: true,
-			composed: true
-		  })
-		);
+		console.error("Sync failed", error);
 	  });
 	}, 150);
 	  }
@@ -909,6 +930,68 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	}
 
 	return !["0", "false", "no"].includes(String(value).toLowerCase());
+  }
+
+  _setStatus(message, tone = "") {
+	if (!this.statusEl) return;
+
+	this.statusEl.textContent = message;
+	this.statusEl.classList.toggle("error", tone === "error");
+	this.statusEl.classList.toggle("warning", tone === "warning");
+  }
+
+  _dispatchSyncError(error) {
+	this.dispatchEvent(
+	  new CustomEvent("sync-error", {
+		detail: { error },
+		bubbles: true,
+		composed: true
+	  })
+	);
+  }
+
+  _reportPackPlacement(output) {
+	const unplaced = this._countValue(output?.unplaced);
+	if (!unplaced) {
+	  this._setStatus("");
+	  return null;
+	}
+
+	const placed = this._countValue(output?.placed);
+	const message = this._packPlacementMessage({ placed, unplaced });
+
+	this._setStatus(message, "warning");
+	this.dispatchEvent(
+	  new CustomEvent("pack-incomplete", {
+		detail: {
+		  message,
+		  output,
+		  placed,
+		  unplaced
+		},
+		bubbles: true,
+		composed: true
+	  })
+	);
+
+	return message;
+  }
+
+  _packPlacementMessage({ placed, unplaced }) {
+	const unplacedLabel = unplaced === 1 ? "piece" : "pieces";
+
+	if (placed === null) {
+	  return `${unplaced} ${unplacedLabel} could not fit on the available stock.`;
+	}
+
+	const placedLabel = placed === 1 ? "piece" : "pieces";
+	const placedVerb = placed === 1 ? "was" : "were";
+	return `${placed} ${placedLabel} ${placedVerb} placed; ${unplaced} ${unplacedLabel} could not fit on the available stock.`;
+  }
+
+  _countValue(value) {
+	const count = Number(value);
+	return Number.isFinite(count) && count >= 0 ? Math.trunc(count) : null;
   }
 
   _viewBoxDimension(viewBox, index) {

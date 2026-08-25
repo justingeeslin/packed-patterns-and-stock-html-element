@@ -350,6 +350,75 @@ describe("PatternPackBoard", () => {
 	}));
   });
 
+  test("warns when a completed pack leaves pieces unplaced", async () => {
+	const { board } = createFixture({
+	  endpoint: "/api/runpod/runsync",
+	});
+	const incompleteSpy = vi.fn();
+	const message =
+	  "0 pieces were placed; 14 pieces could not fit on the available stock.";
+
+	board.addEventListener("pack-incomplete", incompleteSpy);
+
+	vi.stubGlobal(
+	  "fetch",
+	  vi.fn().mockResolvedValue(
+		jsonResponse({
+		  status: "COMPLETED",
+		  output: {
+			outputs: [
+			  { sheet_index: 0, svg: workerResultSvg({ id: "partial-output" }) },
+			],
+			placed: 0,
+			unplaced: 14,
+		  },
+		}),
+	  ),
+	);
+
+	await board.syncNow();
+
+	expect(board.querySelector("#partial-output")).not.toBeNull();
+	expect(board.statusEl.textContent).toBe(message);
+	expect(board.statusEl.classList.contains("warning")).toBe(true);
+	expect(board.statusEl.classList.contains("error")).toBe(false);
+	expect(incompleteSpy).toHaveBeenCalledTimes(1);
+	expect(incompleteSpy.mock.calls[0][0].detail).toEqual(expect.objectContaining({
+	  message,
+	  output: expect.objectContaining({
+		placed: 0,
+		unplaced: 14,
+	  }),
+	  placed: 0,
+	  unplaced: 14,
+	}));
+  });
+
+  test("reports failed packs in the board status", async () => {
+	const { board } = createFixture({
+	  endpoint: "/api/pack/irregular",
+	});
+	const syncErrorSpy = vi.fn();
+
+	board.addEventListener("sync-error", syncErrorSpy);
+	vi.stubGlobal(
+	  "fetch",
+	  vi.fn().mockResolvedValue(jsonResponse({ error: "no stock" }, { status: 500 })),
+	);
+
+	await expect(board.syncNow()).rejects.toThrow("Sync failed with status 500");
+
+	expect(board.statusEl.textContent).toBe(
+	  "Packing failed: Sync failed with status 500",
+	);
+	expect(board.statusEl.classList.contains("error")).toBe(true);
+	expect(board.statusEl.classList.contains("warning")).toBe(false);
+	expect(syncErrorSpy).toHaveBeenCalledTimes(1);
+	expect(syncErrorSpy.mock.calls[0][0].detail.error.message).toBe(
+	  "Sync failed with status 500",
+	);
+  });
+
   test("keeps packed endpoint output draggable, grid-backed, and quantity-controlled", async () => {
 	const { board, control } = createPackedInteractionFixture();
 	const originalSvg = board.querySelector("svg");

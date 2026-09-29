@@ -861,6 +861,8 @@ export class UploadablePalette extends HTMLElement {
   ) {
     const url = new URL(this.opencvEndpoint, document.baseURI);
     url.searchParams.set("url", uploadedUrl);
+    // url.searchParams.set("measurer", "object");
+    url.searchParams.set("measurer", "reference_surface");
     url.searchParams.set(
       "reference_width_mm",
       this._formatMillimeters(referenceDimensions.widthMm),

@@ -5,8 +5,8 @@ const SVG_MIME_TYPE = "image/svg+xml";
 const DEFAULT_PHOTO_UPLOAD_ENDPOINT = "../upload.php";
 const DEFAULT_OPENCV_ENDPOINT =
   "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com";
-const DEFAULT_REFERENCE_WIDTH_MM = 215.9;
-const DEFAULT_REFERENCE_HEIGHT_MM = 279.4;
+const DEFAULT_REFERENCE_WIDTH_MM = 762;
+const DEFAULT_REFERENCE_HEIGHT_MM = 762;
 export const DEFAULT_BOARD_PIXELS_PER_MM = 1;
 export const DEFAULT_UPLOADED_SVG_PIXELS_PER_MM = 1;
 const SVG_NUMBER_PATTERN = "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?";

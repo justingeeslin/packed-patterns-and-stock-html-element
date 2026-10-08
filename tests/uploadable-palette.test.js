@@ -457,7 +457,7 @@ describe("UploadablePalette", () => {
     const [url, options] = fetchMock.mock.calls[0];
 
     expect(url).toBe(
-      "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com/dxf-to-svg",
+      "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com/dxf-to-svg/",
     );
     expect(options.method).toBe("POST");
     expect(options.body).toBeInstanceOf(FormData);
@@ -482,7 +482,7 @@ describe("UploadablePalette", () => {
     await uploadFiles(palette, [createDxfFile()]);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://127.0.0.1:8000/dxf-to-svg",
+      "http://127.0.0.1:8000/dxf-to-svg/",
     );
   });
 

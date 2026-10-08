@@ -782,21 +782,25 @@ export class UploadablePalette extends HTMLElement {
   }
 
   async _convertDxfToSvg(file) {
-    const formData = new FormData();
-    formData.append("file", file, file.name || "uploaded.dxf");
-
     this._setStatus("Converting uploaded DXF...");
 
     const svgResult = await this._fetchOpenCvResult(
       this._opencvDxfToSvgUrl(),
       "DXF conversion failed.",
-      {
-        method: "POST",
-        body: formData,
-      },
+      this._dxfToSvgRequestOptions(file),
     );
 
     return this._validateOpenCvSvgResult(svgResult);
+  }
+
+  _dxfToSvgRequestOptions(file) {
+    const formData = new FormData();
+    formData.append("file", file, file.name || "uploaded.dxf");
+
+    return {
+      method: "POST",
+      body: formData,
+    };
   }
 
   _readFileText(file) {
@@ -893,7 +897,7 @@ export class UploadablePalette extends HTMLElement {
 
   _opencvDxfToSvgUrl() {
     const url = new URL(this.opencvEndpoint, document.baseURI);
-    url.pathname = `${url.pathname.replace(/\/$/, "")}/dxf-to-svg`;
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/dxf-to-svg/`;
     url.search = "";
     url.hash = "";
 
@@ -1207,7 +1211,12 @@ export class UploadablePalette extends HTMLElement {
     const text = await response.text();
 
     if (!response.ok) {
-      throw this._openCvErrorFromResponseBody(text, fallbackMessage);
+      const error = this._openCvErrorFromResponseBody(text, fallbackMessage);
+      error.status = response.status;
+      error.allowedMethods = response.headers.get("allow") || "";
+      error.responseUrl = response.url || url;
+      error.redirected = response.redirected;
+      throw error;
     }
 
     return this._opencvResultFromResponseBody(text);

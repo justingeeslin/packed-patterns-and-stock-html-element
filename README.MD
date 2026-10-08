@@ -34,7 +34,7 @@ subdivisions:
 
 `<uploadable-palette>` adds uploaded SVG files directly as
 `<piece-quantity-control>` entries. DXF uploads are posted to
-`${opencv-endpoint}/dxf-to-svg` and the returned SVG is added through the same
+`${opencv-endpoint}/dxf-to-svg/` and the returned SVG is added through the same
 path. Non-SVG image uploads are posted to `photo-upload-endpoint` first, then
 the returned file URL is sent to the OpenCV SVG endpoint:
 
@@ -54,7 +54,7 @@ The OpenCV request is sent as
 `?url=...&reference_width_mm=215.9&reference_height_mm=279.4&debug_image_urls=1`,
 and the returned SVG is added through the same path as a directly uploaded SVG.
 For local DXF conversion, set `opencv-endpoint="http://127.0.0.1:8000"` so
-DXF files post to `http://127.0.0.1:8000/dxf-to-svg`.
+DXF files post to `http://127.0.0.1:8000/dxf-to-svg/`.
 
 JSON OpenCV responses may include `debug_image_urls`, a list of snapshots from
 the CV pipeline. When present, the generated `<piece-quantity-control>` shows a

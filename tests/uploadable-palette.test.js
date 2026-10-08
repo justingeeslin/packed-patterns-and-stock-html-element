@@ -114,6 +114,12 @@ function createImageFile(contents = "fake image contents", name = "front-bodice.
   });
 }
 
+function createDxfFile(contents = "0\nEOF\n", name = "front-bodice.dxf") {
+  return new File([contents], name, {
+    type: "application/dxf",
+  });
+}
+
 function jsonResponse(data, options = {}) {
   return new Response(JSON.stringify(data), {
     status: options.status ?? 200,
@@ -289,6 +295,7 @@ describe("UploadablePalette", () => {
 
     expect(input).not.toBeNull();
     expect(input.accept).toContain(".svg");
+    expect(input.accept).toContain(".dxf");
     expect(input.accept).toContain("image/*");
     expect(input.multiple).toBe(true);
     expect(controls.modal.hidden).toBe(true);
@@ -381,8 +388,8 @@ describe("UploadablePalette", () => {
     const controls = await waitForReferenceModal(palette);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(controls.widthInput.value).toBe("215.9");
-    expect(controls.heightInput.value).toBe("279.4");
+    expect(controls.widthInput.value).toBe("762");
+    expect(controls.heightInput.value).toBe("762");
     expect(controls.unitSelect.value).toBe("mm");
     expect(controls.preview.hidden).toBe(false);
     expect(controls.previewImage.src).toBe(
@@ -432,6 +439,51 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.querySelector("#front-path")).not.toBeNull();
+  });
+
+  test("converts an uploaded DXF into an SVG piece quantity control", async () => {
+    const { palette } = createFixture();
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        svg: SIMPLE_SVG,
+        debug_image_urls: DEBUG_IMAGE_URLS,
+      }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [event] = await uploadFiles(palette, [createDxfFile()]);
+    const control = event.detail.control;
+    const [url, options] = fetchMock.mock.calls[0];
+
+    expect(url).toBe(
+      "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com/dxf-to-svg",
+    );
+    expect(options.method).toBe("POST");
+    expect(options.body).toBeInstanceOf(FormData);
+    expect(options.body.get("file").name).toBe("front-bodice.dxf");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(referenceControls(palette).modal.hidden).toBe(true);
+    expect(control.id).toBe("uploaded-front-bodice-0-control");
+    expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
+    expect(control.getAttribute("label")).toBe("Front Bodice");
+    expect(control.querySelector("#front-path")).not.toBeNull();
+    expect(event.detail.debugImages).toHaveLength(2);
+  });
+
+  test("uses the OpenCV endpoint attribute as the DXF conversion base URL", async () => {
+    const { palette } = createFixture();
+    palette.setAttribute("opencv-endpoint", "http://127.0.0.1:8000");
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFiles(palette, [createDxfFile()]);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://127.0.0.1:8000/dxf-to-svg",
+    );
   });
 
   test("uses the photo-upload-endpoint attribute for photo conversions", async () => {
@@ -1419,6 +1471,69 @@ describe("UploadablePalette", () => {
       "OpenCV response did not include an SVG.",
     );
     expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports invalid OpenCV SVG responses without using the upload SVG error", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({
+            files: [
+              {
+                status: "success",
+                original_name: "front-bodice.jpg",
+                filename: "saved-front-bodice.jpg",
+                url: "/uploads/saved-front-bodice.jpg",
+              },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({
+            svg: ["No contour could be detected."],
+            debug_image_urls: DEBUG_IMAGE_URLS,
+          }),
+        ),
+    );
+
+    dispatchFiles(palette, [createImageFile()]);
+    await submitReferenceDimensions(palette);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "OpenCV response did not include a valid SVG.",
+    );
+    expect(event.detail.debugImages).toHaveLength(2);
+    expect(palette.statusEl.textContent).toBe("1 file could not be uploaded.");
+  });
+
+  test("reports invalid DXF conversion SVG responses with debug images", async () => {
+    const { palette } = createFixture();
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        jsonResponse({
+          svg: ["No DXF geometry could be converted."],
+          debug_image_urls: DEBUG_IMAGE_URLS,
+        }),
+      ),
+    );
+
+    dispatchFiles(palette, [createDxfFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(
+      "OpenCV response did not include a valid SVG.",
+    );
+    expect(event.detail.debugImages).toHaveLength(2);
+    expect(palette.statusEl.textContent).toBe("1 DXF could not be uploaded.");
   });
 
   test("keeps debug images from empty OpenCV SVG responses", async () => {

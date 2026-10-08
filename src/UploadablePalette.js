@@ -451,7 +451,7 @@ export class UploadablePalette extends HTMLElement {
         <div class="header">
           <h1>Patterns</h1>
           <form class="upload-form">
-            <input type="file" id="svgPieceUpload" accept=".svg,image/svg+xml,image/*" multiple hidden>
+            <input type="file" id="svgPieceUpload" accept=".svg,image/svg+xml,.dxf,application/dxf,application/x-dxf,image/*" multiple hidden>
             <label class="upload-button" for="svgPieceUpload">Add / Upload</label>
           </form>
         </div>
@@ -774,7 +774,29 @@ export class UploadablePalette extends HTMLElement {
       };
     }
 
+    if (this._isDxfFile(file)) {
+      return this._convertDxfToSvg(file);
+    }
+
     return this._convertPhotoToContourSvg(file);
+  }
+
+  async _convertDxfToSvg(file) {
+    const formData = new FormData();
+    formData.append("file", file, file.name || "uploaded.dxf");
+
+    this._setStatus("Converting uploaded DXF...");
+
+    const svgResult = await this._fetchOpenCvResult(
+      this._opencvDxfToSvgUrl(),
+      "DXF conversion failed.",
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    return this._validateOpenCvSvgResult(svgResult);
   }
 
   _readFileText(file) {
@@ -834,14 +856,7 @@ export class UploadablePalette extends HTMLElement {
       "OpenCV conversion failed.",
     );
 
-    if (typeof svgResult.svgText !== "string" || svgResult.svgText.trim() === "") {
-      throw this._errorWithDebugImages(
-        "OpenCV response did not include an SVG.",
-        svgResult.debugImages,
-      );
-    }
-
-    return svgResult;
+    return this._validateOpenCvSvgResult(svgResult);
   }
 
   _uploadedFileUrl(uploadedFile) {
@@ -872,6 +887,15 @@ export class UploadablePalette extends HTMLElement {
       this._formatMillimeters(referenceDimensions.heightMm),
     );
     url.searchParams.set("debug_image_urls", "1");
+
+    return url.href;
+  }
+
+  _opencvDxfToSvgUrl() {
+    const url = new URL(this.opencvEndpoint, document.baseURI);
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/dxf-to-svg`;
+    url.search = "";
+    url.hash = "";
 
     return url.href;
   }
@@ -1178,8 +1202,8 @@ export class UploadablePalette extends HTMLElement {
     return result.svgText;
   }
 
-  async _fetchOpenCvResult(url, fallbackMessage) {
-    const response = await fetch(url);
+  async _fetchOpenCvResult(url, fallbackMessage, options) {
+    const response = await fetch(url, options);
     const text = await response.text();
 
     if (!response.ok) {
@@ -1187,6 +1211,24 @@ export class UploadablePalette extends HTMLElement {
     }
 
     return this._opencvResultFromResponseBody(text);
+  }
+
+  _validateOpenCvSvgResult(svgResult) {
+    if (typeof svgResult.svgText !== "string" || svgResult.svgText.trim() === "") {
+      throw this._errorWithDebugImages(
+        "OpenCV response did not include an SVG.",
+        svgResult.debugImages,
+      );
+    }
+
+    if (!this._hasValidSvgRoot(svgResult.svgText)) {
+      throw this._errorWithDebugImages(
+        "OpenCV response did not include a valid SVG.",
+        svgResult.debugImages,
+      );
+    }
+
+    return svgResult;
   }
 
   _svgTextFromResponseBody(text) {
@@ -1360,11 +1402,19 @@ export class UploadablePalette extends HTMLElement {
     return file.type === SVG_MIME_TYPE || /\.svg$/i.test(file.name || "");
   }
 
+  _isDxfFile(file) {
+    return (
+      /\.dxf$/i.test(file.name || "") ||
+      ["application/dxf", "application/x-dxf", "image/vnd.dxf"].includes(
+        String(file.type || "").toLowerCase(),
+      )
+    );
+  }
+
   _parseSvg(svgText) {
     const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
-    const parserError = doc.querySelector("parsererror");
 
-    if (parserError || doc.documentElement?.localName !== "svg") {
+    if (!this._hasSvgRoot(doc)) {
       throw new Error("Uploaded file must contain a valid SVG root.");
     }
 
@@ -1373,6 +1423,18 @@ export class UploadablePalette extends HTMLElement {
     svg.setAttribute("xmlns", SVG_NS);
 
     return svg;
+  }
+
+  _hasValidSvgRoot(svgText) {
+    const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+
+    return this._hasSvgRoot(doc);
+  }
+
+  _hasSvgRoot(doc) {
+    const parserError = doc.querySelector("parsererror");
+
+    return !parserError && doc.documentElement?.localName === "svg";
   }
 
   _stripActiveSvgContent(svg) {
@@ -2072,7 +2134,10 @@ export class UploadablePalette extends HTMLElement {
   }
 
   _statusFileLabel(files) {
-    return files.every((file) => this._isSvgFile(file)) ? "SVG" : "file";
+    if (files.every((file) => this._isSvgFile(file))) return "SVG";
+    if (files.every((file) => this._isDxfFile(file))) return "DXF";
+
+    return "file";
   }
 }
 

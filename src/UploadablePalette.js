@@ -898,7 +898,8 @@ export class UploadablePalette extends HTMLElement {
   _opencvDxfToSvgUrl() {
     const url = new URL(this.opencvEndpoint, document.baseURI);
     url.pathname = `${url.pathname.replace(/\/$/, "")}/dxf-to-svg/`;
-    url.search = "";
+    // Conversion factor from OptiTex DXFs, from Nov 25th, 2025 lab update
+    url.searchParams.set("scale", "0.1");
     url.hash = "";
 
     return url.href;

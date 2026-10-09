@@ -455,10 +455,13 @@ describe("UploadablePalette", () => {
     const [event] = await uploadFiles(palette, [createDxfFile()]);
     const control = event.detail.control;
     const [url, options] = fetchMock.mock.calls[0];
+    const dxfUrl = new URL(url);
 
-    expect(url).toBe(
-      "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com/dxf-to-svg/",
+    expect(dxfUrl.origin).toBe(
+      "https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com",
     );
+    expect(dxfUrl.pathname).toBe("/dxf-to-svg/");
+    expect(dxfUrl.searchParams.get("scale")).toBe("0.1");
     expect(options.method).toBe("POST");
     expect(options.body).toBeInstanceOf(FormData);
     expect(options.body.get("file").name).toBe("front-bodice.dxf");
@@ -481,9 +484,58 @@ describe("UploadablePalette", () => {
 
     await uploadFiles(palette, [createDxfFile()]);
 
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://127.0.0.1:8000/dxf-to-svg/",
-    );
+    const dxfUrl = new URL(fetchMock.mock.calls[0][0]);
+
+    expect(dxfUrl.origin).toBe("http://127.0.0.1:8000");
+    expect(dxfUrl.pathname).toBe("/dxf-to-svg/");
+    expect(dxfUrl.searchParams.get("scale")).toBe("0.1");
+  });
+
+  test("uses the dxf-conversion-scale attribute for DXF conversion requests", async () => {
+    const { palette } = createFixture();
+    palette.setAttribute("dxf-conversion-scale", "0.05");
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFiles(palette, [createDxfFile()]);
+
+    const dxfUrl = new URL(fetchMock.mock.calls[0][0]);
+
+    expect(dxfUrl.searchParams.get("scale")).toBe("0.05");
+  });
+
+  test("reflects the dxfConversionScale property to DXF conversion requests", async () => {
+    const { palette } = createFixture();
+    palette.dxfConversionScale = 0.025;
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFiles(palette, [createDxfFile()]);
+
+    const dxfUrl = new URL(fetchMock.mock.calls[0][0]);
+
+    expect(palette.getAttribute("dxf-conversion-scale")).toBe("0.025");
+    expect(dxfUrl.searchParams.get("scale")).toBe("0.025");
+  });
+
+  test("falls back to the default DXF conversion scale for invalid values", async () => {
+    const { palette } = createFixture();
+    palette.setAttribute("dxf-conversion-scale", "0");
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(svgResponse(SIMPLE_SVG));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadFiles(palette, [createDxfFile()]);
+
+    const dxfUrl = new URL(fetchMock.mock.calls[0][0]);
+
+    expect(palette.dxfConversionScale).toBe(0.1);
+    expect(dxfUrl.searchParams.get("scale")).toBe("0.1");
   });
 
   test("uses the photo-upload-endpoint attribute for photo conversions", async () => {

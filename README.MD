@@ -43,6 +43,7 @@ the returned file URL is sent to the OpenCV SVG endpoint:
   board="board"
   photo-upload-endpoint="../upload.php"
   opencv-endpoint="https://shrouded-tor-52623-62e8e1beefb8.herokuapp.com"
+  dxf-conversion-scale="0.1"
   board-pixels-per-mm="1"
   uploaded-svg-pixels-per-mm="1"
   reference-width-mm="215.9"
@@ -55,6 +56,8 @@ The OpenCV request is sent as
 and the returned SVG is added through the same path as a directly uploaded SVG.
 For local DXF conversion, set `opencv-endpoint="http://127.0.0.1:8000"` so
 DXF files post to `http://127.0.0.1:8000/dxf-to-svg/`.
+DXF conversion requests include `scale=0.1` by default; customize that value
+with `dxf-conversion-scale`.
 
 JSON OpenCV responses may include `debug_image_urls`, a list of snapshots from
 the CV pipeline. When present, the generated `<piece-quantity-control>` shows a
@@ -74,6 +77,7 @@ The same settings can be changed from JavaScript:
 const palette = document.querySelector("uploadable-palette");
 palette.boardPixelsPerMm = 1;
 palette.uploadedSvgPixelsPerMm = 3.7795;
+palette.dxfConversionScale = 0.05;
 ```
 
 After a non-SVG file is uploaded, the component opens an HTML modal for the

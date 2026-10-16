@@ -19,6 +19,8 @@ const DEFAULT_PACK_OPTIONS = {
   rotations: 1,
   persist: false,
 };
+export const PACK_REQUEST_EVENT = "pack-request";
+const CONTROLS_ATTRIBUTE = "controls";
 const BOARD_BOUNDS_PADDING = 50;
 const PACK_OPTION_ATTRIBUTES = {
   "include-stock": "include_stock",
@@ -199,6 +201,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
   static get observedAttributes() {
 	return [
 	  "endpoint",
+	  CONTROLS_ATTRIBUTE,
 	  "pack-options",
 	  ...Object.keys(PACK_OPTION_ATTRIBUTES),
 	  ...GRID_OPTION_ATTRIBUTES,
@@ -212,6 +215,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		this._syncTimer = null;
 		this._isConnected = false;
 		this._inchGridIdPrefix = `pattern-pack-inch-grid-${nextInchGridId++}`;
+		this._handlePackRequest = this._handlePackRequest.bind(this);
 	
 	// Grid-like layout options
 	this.gap = 50;
@@ -263,16 +267,14 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	this.progressEl = this.shadowRoot.querySelector("progress");
 	console.log("Progress bar element", this.progressEl)
 	
-	const syncBtn = this.shadowRoot.getElementById("syncBtn");
+	this.packButton = this.shadowRoot.getElementById("syncBtn");
 	
-	syncBtn.addEventListener("click", async () => {
-		try {
-			const response = await this.syncNow();
-			console.log("Sync complete", response);
-		} catch (err) {
-			console.error("Sync failed", err);
-		}
+	this.packButton.addEventListener("click", () => {
+		this._requestPack();
 	});
+
+	this.addEventListener(PACK_REQUEST_EVENT, this._handlePackRequest);
+	this._updatePackButtonVisibility();
   }
   
 	  /**
@@ -358,6 +360,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 			super.connectedCallback?.();
 			this._ensureRoleStrokeStyles();
 			this._ensureInchGrid();
+			this._updatePackButtonVisibility();
 			
 			if (this._isConnected) return;
 		this._isConnected = true;
@@ -400,6 +403,19 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 	
 		this.setAttribute("endpoint", String(value));
+	  }
+
+	  get controls() {
+		return this.hasAttribute(CONTROLS_ATTRIBUTE);
+	  }
+
+	  set controls(value) {
+		if (value) {
+		  this.setAttribute(CONTROLS_ATTRIBUTE, "");
+		  return;
+		}
+
+		this.removeAttribute(CONTROLS_ATTRIBUTE);
 	  }
 
 	  get boardPixelsPerMm() {
@@ -455,7 +471,14 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	  }
 
 		  attributeChangedCallback(name, oldValue, newValue) {
-		if (oldValue === newValue || !this.isConnected) return;
+		if (oldValue === newValue) return;
+
+		if (name === CONTROLS_ATTRIBUTE) {
+		  this._updatePackButtonVisibility();
+		  return;
+		}
+
+		if (!this.isConnected) return;
 
 		if (GRID_OPTION_ATTRIBUTES.includes(name)) {
 		  this._ensureInchGrid();
@@ -504,6 +527,32 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		
 	return payload
 	
+  }
+
+  _requestPack() {
+	const promise = this.syncNow();
+
+	promise.then((response) => {
+		console.log("Sync complete", response);
+	}).catch((err) => {
+		console.error("Sync failed", err);
+	});
+
+	return promise;
+  }
+
+  _handlePackRequest(event) {
+	const promise = this._requestPack();
+
+	if (event.detail && typeof event.detail === "object") {
+	  event.detail.promise = promise;
+	}
+  }
+
+  _updatePackButtonVisibility() {
+	if (!this.packButton) return;
+
+	this.packButton.hidden = !this.controls;
   }
 
   async syncNow() {

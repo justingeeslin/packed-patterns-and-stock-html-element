@@ -4,6 +4,7 @@ import {
   DEFAULT_BOARD_PIXELS_PER_MM,
   DEFAULT_GRID_SUBDIVISIONS_PER_INCH,
   DEFAULT_PACKAIDE_ENDPOINT,
+  PACK_REQUEST_EVENT,
   PatternPackBoard,
 } from "../src/PatternPackBoard.js";
 import "../src/PieceQuantityControl.js";
@@ -348,6 +349,24 @@ describe("PatternPackBoard", () => {
 	expect(board.endpoint).toBe(DEFAULT_PACKAIDE_ENDPOINT);
   });
 
+  test("shows the built-in pack button when controls are enabled", () => {
+	const { board } = createFixture();
+	const packButton = board.shadowRoot.getElementById("syncBtn");
+
+	expect(board.controls).toBe(false);
+	expect(packButton.hidden).toBe(true);
+
+	board.controls = true;
+
+	expect(board.getAttribute("controls")).toBe("");
+	expect(packButton.hidden).toBe(false);
+
+	board.controls = false;
+
+	expect(board.hasAttribute("controls")).toBe(false);
+	expect(packButton.hidden).toBe(true);
+  });
+
   test("posts Packaide irregular stock payloads to the configured endpoint", async () => {
 	const { board } = createFixture({
 	  endpoint: "/api/pack/irregular",
@@ -395,6 +414,36 @@ describe("PatternPackBoard", () => {
 	const packedSvg = board.querySelector("svg");
 	expect(packedSvg.getAttribute("id")).toBe("board");
 	expect(packedSvg.querySelector("#packed-part")).not.toBeNull();
+  });
+
+  test("starts packing when a pack request event is dispatched", async () => {
+	const { board } = createFixture({
+	  endpoint: "/api/pack/irregular",
+	});
+	const detail = {};
+	const fetchMock = vi.fn().mockResolvedValue(
+	  jsonResponse({
+		outputs: [{ sheet_index: 0, svg: workerResultSvg({ id: "event-packed" }) }],
+		placed: 1,
+		unplaced: 0,
+	  }),
+	);
+
+	vi.stubGlobal("fetch", fetchMock);
+
+	board.dispatchEvent(
+	  new CustomEvent(PACK_REQUEST_EVENT, {
+		detail,
+		bubbles: true,
+		composed: true,
+	  }),
+	);
+
+	expect(detail.promise).toBeInstanceOf(Promise);
+	await detail.promise;
+
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+	expect(board.querySelector("#event-packed")).not.toBeNull();
   });
 
   test("posts multiple stock SVGs as stock_svgs", () => {

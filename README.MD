@@ -17,6 +17,24 @@ const board = document.querySelector("pattern-pack-board");
 board.endpoint = "/api/pack/v2";
 ```
 
+The board omits its built-in controls by default, so a host application can
+provide its own UI. Add `controls` to show the Pack button:
+
+```html
+<pattern-pack-board endpoint="/api/pack/sync" controls></pattern-pack-board>
+```
+
+Host controls can begin a pack by dispatching `pack-request`. Pass an object as
+the event detail to await the resulting request:
+
+```js
+const board = document.querySelector("pattern-pack-board");
+const request = {};
+
+board.dispatchEvent(new CustomEvent("pack-request", { detail: request }));
+await request.promise;
+```
+
 The board renders an inch grid plus numbered rulers along its top and left
 edges by default. With `board-pixels-per-mm="1"`, one inch is `25.4` board
 units, matching uploaded pieces normalized to 1 px per mm. Ruler ticks and

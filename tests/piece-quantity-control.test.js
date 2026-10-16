@@ -89,6 +89,44 @@ describe("PieceQuantityControl", () => {
 	expect(control.qtyInput).not.toBeNull();
   });
 
+  test("hides the CV debug button when no debug images are available", () => {
+	const { control } = createFixture();
+
+	expect(control.debugButton.hidden).toBe(true);
+	expect(control.debugImages).toEqual([]);
+  });
+
+  test("opens a CV debug image viewer when debug images are available", () => {
+	const { control } = createFixture();
+
+	control.debugImages = [
+	  {
+		name: "imgWarp",
+		filename: "3_imgWarp.png",
+		mime_type: "image/png",
+		url: "/debug-images/session/3_imgWarp.png",
+	  },
+	];
+
+	control.debugButton.click();
+
+	const image = control.shadowRoot.querySelector(".debug-figure img");
+	const openLink = control.shadowRoot.querySelector(".debug-caption a");
+
+	expect(control.debugButton.hidden).toBe(false);
+	expect(control.debugButton.textContent).toBe("CV Debug");
+	expect(control.debugModalEl.hidden).toBe(false);
+	expect(image.alt).toBe("imgWarp");
+	expect(new URL(image.src).pathname).toBe(
+	  "/debug-images/session/3_imgWarp.png",
+	);
+	expect(openLink.target).toBe("_blank");
+
+	control.debugCloseButton.click();
+
+	expect(control.debugModalEl.hidden).toBe(true);
+  });
+
   test("renders the label attribute", () => {
 	const { control } = createFixture({
 	  label: "Squares",
@@ -320,6 +358,64 @@ describe("PieceQuantityControl", () => {
 	expect(remainingPieces).toHaveLength(2);
 	expect(remainingPieces[0]).toBe(firstPiece);
 	expect(remainingPieces[1]).toBe(secondPiece);
+  });
+
+  test("treats multiple template roots as one quantity unit", async () => {
+	const { control, board } = createFixture({
+	  template: `
+		<template slot="shape">
+		  <svg xmlns="http://www.w3.org/2000/svg">
+			<g id="front-piece"><path d="M0 0 L10 0 L5 10 Z"></path></g>
+			<g id="back-piece"><path d="M0 0 L20 0 L20 8 L0 8 Z"></path></g>
+		  </svg>
+		</template>
+	  `,
+	});
+
+	await setQuantity(control, 2);
+
+	let pieces = getOwnedPieces(
+	  board,
+	  "triangle-control",
+	  "triangle",
+	);
+
+	expect(pieces).toHaveLength(4);
+	expect(pieces.map((piece) => piece.id)).toEqual([
+	  "front-piece",
+	  "back-piece",
+	  "front-piece",
+	  "back-piece",
+	]);
+	expect(pieces.map((piece) => piece.getAttribute("data-owner-unit"))).toEqual([
+	  "triangle-control-0",
+	  "triangle-control-0",
+	  "triangle-control-1",
+	  "triangle-control-1",
+	]);
+	expect(pieces.map((piece) => piece.getAttribute("transform"))).toEqual([
+	  "translate(80, 80)",
+	  "translate(200, 80)",
+	  "translate(320, 80)",
+	  "translate(440, 80)",
+	]);
+
+	await setQuantity(control, 1);
+
+	pieces = getOwnedPieces(
+	  board,
+	  "triangle-control",
+	  "triangle",
+	);
+
+	expect(pieces).toHaveLength(2);
+	expect(pieces.map((piece) => piece.id)).toEqual([
+	  "front-piece",
+	  "back-piece",
+	]);
+	expect(
+	  new Set(pieces.map((piece) => piece.getAttribute("data-owner-unit"))),
+	).toEqual(new Set(["triangle-control-0"]));
   });
 
   test("does not remove pieces owned by another control", async () => {

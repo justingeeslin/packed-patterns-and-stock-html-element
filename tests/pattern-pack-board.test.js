@@ -236,6 +236,57 @@ describe("PatternPackBoard", () => {
     expect(majorPattern.getAttribute("width")).toBe("50.8");
   });
 
+  test("adds numbered inch rulers to the top and left board edges", () => {
+    const { board } = createFixture({
+      svg: `
+		<svg id="board" xmlns="${SVG_NS}" viewBox="0 0 100 80">
+		  <rect class="board-background" x="0" y="0" width="100" height="80"></rect>
+		</svg>
+	  `,
+    });
+    const svg = board.querySelector("svg");
+    const rulerLayer = svg.querySelector("[data-pattern-pack-inch-rulers]");
+    const horizontalRuler = rulerLayer.querySelector(
+      '[data-ruler-axis="horizontal"]',
+    );
+    const verticalRuler = rulerLayer.querySelector(
+      '[data-ruler-axis="vertical"]',
+    );
+
+    expect(rulerLayer.getAttribute("data-board-layer")).toBe("inch-rulers");
+    expect(rulerLayer.getAttribute("pointer-events")).toBe("none");
+    expect(rulerLayer.getAttribute("aria-label")).toContain("in inches");
+    expect(horizontalRuler.querySelector('[data-ruler-value="1"]')).not.toBeNull();
+    expect(horizontalRuler.querySelector('[data-ruler-value="2"]')).not.toBeNull();
+    expect(verticalRuler.querySelector('[data-ruler-value="1"]')).not.toBeNull();
+    expect(svg.querySelector("[data-ruler-corner]").textContent).toBe("in");
+    expect(svg.lastElementChild).toBe(rulerLayer);
+  });
+
+  test("keeps ruler marks aligned with customized grid measurements", () => {
+    const { board } = createFixture({
+      attributes: ' board-pixels-per-mm="2" grid-subdivisions-per-inch="8"',
+      svg: `
+		<svg id="board" xmlns="${SVG_NS}" viewBox="0 0 180 120"></svg>
+	  `,
+    });
+    const svg = board.querySelector("svg");
+    const horizontalRuler = svg.querySelector('[data-ruler-axis="horizontal"]');
+    const oneInchLabel = horizontalRuler.querySelector('[data-ruler-value="1"]');
+    const minorTicks = horizontalRuler.querySelectorAll(".inch-ruler-tick");
+
+    expect(oneInchLabel.getAttribute("x")).toBe("50.8");
+    expect(minorTicks[1].getAttribute("x1")).toBe("6.35");
+
+    board.boardPixelsPerMm = 1;
+
+    expect(
+      svg.querySelector(
+        '[data-ruler-axis="horizontal"] [data-ruler-value="1"]',
+      ).getAttribute("x"),
+    ).toBe("25.4");
+  });
+
   test("uses the default Packaide endpoint when none is configured", () => {
     const board = document.createElement("pattern-pack-board");
 
@@ -377,6 +428,16 @@ describe("PatternPackBoard", () => {
 	);
 	expect(svg.querySelector('[data-board-layer="grid"]').getAttribute("height"))
 	  .toBe("270");
+	expect(
+	  svg.querySelector(
+		'[data-ruler-axis="horizontal"] [data-ruler-value="13"]',
+	  ),
+	).not.toBeNull();
+	expect(
+	  svg.querySelector(
+		'[data-ruler-axis="vertical"] [data-ruler-value="10"]',
+	  ),
+	).not.toBeNull();
   });
 
   test("consumes RunPod-wrapped worker output SVGs", async () => {
@@ -531,6 +592,12 @@ describe("PatternPackBoard", () => {
 	  liveSvg.querySelector("rect[data-pattern-pack-inch-grid-layer]")
 		.getAttribute("width"),
 	).toBe("1302");
+	expect(liveSvg.querySelector("[data-pattern-pack-inch-rulers]")).not.toBeNull();
+	expect(
+	  liveSvg.querySelector(
+		'[data-ruler-axis="horizontal"] [data-ruler-value="50"]',
+	  ),
+	).not.toBeNull();
 	expect(liveSvg.querySelector("#owned-piece-a")).toBeNull();
 	expect(packedStock).not.toBeNull();
 	expect(liveSvg.querySelector("#packed-stock-b")).not.toBeNull();

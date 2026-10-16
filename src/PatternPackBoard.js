@@ -16,7 +16,8 @@ const RULER_SIZE_INCHES = 0.72;
 const DEFAULT_PACK_OPTIONS = {
   tolerance: 0.03,
   offset: 0,
-  rotations: 1,
+  // using two rotations tries 0 degrees (no change), and a 180 degree rotation. - https://github.com/DanielLiamAnderson/Packaide
+  rotations: 2,
   persist: false,
 };
 export const PACK_REQUEST_EVENT = "pack-request";

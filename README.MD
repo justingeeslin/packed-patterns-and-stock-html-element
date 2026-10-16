@@ -17,10 +17,10 @@ const board = document.querySelector("pattern-pack-board");
 board.endpoint = "/api/pack/v2";
 ```
 
-The board renders an inch grid by default. With `board-pixels-per-mm="1"`,
-one major grid square is `25.4` board units, matching 1 inch when uploaded
-pieces are normalized to 1 px per mm. Minor grid lines default to quarter-inch
-subdivisions:
+The board renders an inch grid plus numbered rulers along its top and left
+edges by default. With `board-pixels-per-mm="1"`, one inch is `25.4` board
+units, matching uploaded pieces normalized to 1 px per mm. Ruler ticks and
+minor grid lines default to quarter-inch subdivisions:
 
 ```html
 <pattern-pack-board
@@ -29,6 +29,11 @@ subdivisions:
   grid-major-inches="1">
 </pattern-pack-board>
 ```
+
+The rulers automatically update when the board grows or any of these grid
+attributes change. Their colors can be themed with CSS custom properties such
+as `--pattern-pack-ruler-background`, `--pattern-pack-ruler-border`,
+`--pattern-pack-ruler-tick`, and `--pattern-pack-ruler-label`.
 
 ## UploadablePalette image conversions
 

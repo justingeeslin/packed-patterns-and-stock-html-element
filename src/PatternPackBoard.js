@@ -7,10 +7,12 @@ export const DEFAULT_PACKAIDE_ENDPOINT =
   "https://secure-refuge-29958-07dfc33a91ee.herokuapp.com/proxy/";
 const ROLE_STROKE_STYLE_ID = "pattern-pack-role-strokes";
 const INCH_GRID_STYLE_ID = "pattern-pack-inch-grid-styles";
+const INCH_RULER_STYLE_ID = "pattern-pack-inch-ruler-styles";
 const MM_PER_INCH = 25.4;
 export const DEFAULT_BOARD_PIXELS_PER_MM = 1;
 export const DEFAULT_GRID_SUBDIVISIONS_PER_INCH = 4;
 export const DEFAULT_GRID_MAJOR_INCHES = 1;
+const RULER_SIZE_INCHES = 0.72;
 const DEFAULT_PACK_OPTIONS = {
   tolerance: 0.03,
   offset: 0,
@@ -134,6 +136,59 @@ const INCH_GRID_CSS = `
   .grid-major,
   .grid-inch-major {
     stroke: var(--pattern-pack-grid-major-dark, var(--pattern-pack-grid-major, #3b4656));
+  }
+}
+`;
+const INCH_RULER_CSS = `
+.inch-ruler-background,
+.inch-ruler-corner {
+  fill: var(--pattern-pack-ruler-background, #f7f9fc);
+  stroke: var(--pattern-pack-ruler-border, #9aa9ba);
+  stroke-width: var(--pattern-pack-ruler-border-width, 1);
+  vector-effect: non-scaling-stroke;
+}
+
+.inch-ruler-tick {
+  stroke: var(--pattern-pack-ruler-tick, #637386);
+  stroke-width: var(--pattern-pack-ruler-tick-width, 1);
+  vector-effect: non-scaling-stroke;
+}
+
+.inch-ruler-tick-major {
+  stroke: var(--pattern-pack-ruler-tick-major, #2f3b49);
+  stroke-width: var(--pattern-pack-ruler-major-tick-width, 1.25);
+}
+
+.inch-ruler-label,
+.inch-ruler-unit {
+  fill: var(--pattern-pack-ruler-label, #283746);
+  font-family: var(--pattern-pack-ruler-font-family, ui-sans-serif, system-ui, sans-serif);
+  font-weight: 600;
+  user-select: none;
+}
+
+.inch-ruler-unit {
+  font-weight: 700;
+}
+
+@media (prefers-color-scheme: dark) {
+  .inch-ruler-background,
+  .inch-ruler-corner {
+    fill: var(--pattern-pack-ruler-background-dark, var(--pattern-pack-ruler-background, #1d2631));
+    stroke: var(--pattern-pack-ruler-border-dark, var(--pattern-pack-ruler-border, #596779));
+  }
+
+  .inch-ruler-tick {
+    stroke: var(--pattern-pack-ruler-tick-dark, var(--pattern-pack-ruler-tick, #96a5b7));
+  }
+
+  .inch-ruler-tick-major {
+    stroke: var(--pattern-pack-ruler-tick-major-dark, var(--pattern-pack-ruler-tick-major, #d6deea));
+  }
+
+  .inch-ruler-label,
+  .inch-ruler-unit {
+    fill: var(--pattern-pack-ruler-label-dark, var(--pattern-pack-ruler-label, #e6edf5));
   }
 }
 `;
@@ -620,6 +675,8 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		  "aria-label",
 		  `One-inch grid, ${this._formatBoardNumber(inchSize)} board units per inch`,
 		);
+
+		this._ensureInchRulers({ defs, viewBox, inchSize, minorSize });
 	  }
 
 	  _ensureInchGridStyles(defs) {
@@ -633,6 +690,222 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 
 		style.textContent = INCH_GRID_CSS;
+	  }
+
+	  _ensureInchRulers({ defs, viewBox, inchSize, minorSize }) {
+		if (!viewBox) return;
+
+		this._ensureInchRulerStyles(defs);
+
+		let rulerLayer = this.svg.querySelector(
+		  'g[data-board-layer="inch-rulers"]',
+		);
+
+		if (!rulerLayer) {
+		  rulerLayer = document.createElementNS(SVG_NS, "g");
+		  rulerLayer.setAttribute("data-board-layer", "inch-rulers");
+		}
+
+		rulerLayer.setAttribute("data-pattern-pack-inch-rulers", "");
+		rulerLayer.setAttribute("pointer-events", "none");
+		rulerLayer.setAttribute("role", "group");
+		rulerLayer.setAttribute("aria-label", "Horizontal and vertical rulers in inches");
+
+		const rulerSize = Math.min(
+		  inchSize * RULER_SIZE_INCHES,
+		  viewBox.width * 0.2,
+		  viewBox.height * 0.2,
+		);
+		const horizontalRuler = this._createSvgElement("g", {
+		  "data-ruler-axis": "horizontal",
+		  "aria-label": "Horizontal ruler",
+		});
+		const verticalRuler = this._createSvgElement("g", {
+		  "data-ruler-axis": "vertical",
+		  "aria-label": "Vertical ruler",
+		});
+
+		horizontalRuler.appendChild(
+		  this._createSvgElement("rect", {
+			class: "inch-ruler-background",
+			x: viewBox.x + rulerSize,
+			y: viewBox.y,
+			width: Math.max(0, viewBox.width - rulerSize),
+			height: rulerSize,
+		  }),
+		);
+		verticalRuler.appendChild(
+		  this._createSvgElement("rect", {
+			class: "inch-ruler-background",
+			x: viewBox.x,
+			y: viewBox.y + rulerSize,
+			width: rulerSize,
+			height: Math.max(0, viewBox.height - rulerSize),
+		  }),
+		);
+
+		this._appendRulerTicks({
+		  ruler: horizontalRuler,
+		  axis: "horizontal",
+		  start: viewBox.x,
+		  end: viewBox.x + viewBox.width,
+		  crossStart: viewBox.y,
+		  rulerSize,
+		  inchSize,
+		  minorSize,
+		});
+		this._appendRulerTicks({
+		  ruler: verticalRuler,
+		  axis: "vertical",
+		  start: viewBox.y,
+		  end: viewBox.y + viewBox.height,
+		  crossStart: viewBox.x,
+		  rulerSize,
+		  inchSize,
+		  minorSize,
+		});
+
+		const corner = this._createSvgElement("g", {
+		  "data-ruler-corner": "",
+		  "aria-hidden": "true",
+		});
+		corner.appendChild(
+		  this._createSvgElement("rect", {
+			class: "inch-ruler-corner",
+			x: viewBox.x,
+			y: viewBox.y,
+			width: rulerSize,
+			height: rulerSize,
+		  }),
+		);
+		corner.appendChild(
+		  this._createSvgElement(
+			"text",
+			{
+			  class: "inch-ruler-unit",
+			  x: viewBox.x + rulerSize / 2,
+			  y: viewBox.y + rulerSize * 0.64,
+			  "font-size": rulerSize * 0.42,
+			  "text-anchor": "middle",
+			},
+			"in",
+		  ),
+		);
+
+		rulerLayer.replaceChildren(horizontalRuler, verticalRuler, corner);
+		this.svg.appendChild(rulerLayer);
+	  }
+
+	  _ensureInchRulerStyles(defs) {
+		let style = defs.querySelector(`style#${INCH_RULER_STYLE_ID}`);
+
+		if (!style) {
+		  style = document.createElementNS(SVG_NS, "style");
+		  style.id = INCH_RULER_STYLE_ID;
+		  style.setAttribute("data-pattern-pack-inch-ruler-styles", "");
+		  defs.insertBefore(style, defs.firstChild);
+		}
+
+		style.textContent = INCH_RULER_CSS;
+	  }
+
+	  _appendRulerTicks({
+		ruler,
+		axis,
+		start,
+		end,
+		crossStart,
+		rulerSize,
+		inchSize,
+		minorSize,
+	  }) {
+		const firstTick = Math.ceil((start - 0.0001) / minorSize);
+		const lastTick = Math.floor((end + 0.0001) / minorSize);
+		const subdivisions = this.gridSubdivisionsPerInch;
+
+		for (let tickIndex = firstTick; tickIndex <= lastTick; tickIndex += 1) {
+		  const position = tickIndex * minorSize;
+		  const subdivisionIndex = this._positiveModulo(tickIndex, subdivisions);
+		  const isMajor = subdivisionIndex === 0;
+		  const isHalf =
+			subdivisions % 2 === 0 && subdivisionIndex === subdivisions / 2;
+		  const tickLength = rulerSize * (isMajor ? 0.46 : isHalf ? 0.34 : 0.24);
+		  const tickClass = isMajor
+			? "inch-ruler-tick inch-ruler-tick-major"
+			: "inch-ruler-tick";
+		  const tickAttributes = axis === "horizontal"
+			? {
+				class: tickClass,
+				x1: position,
+				y1: crossStart + rulerSize - tickLength,
+				x2: position,
+				y2: crossStart + rulerSize,
+			  }
+			: {
+				class: tickClass,
+				x1: crossStart + rulerSize - tickLength,
+				y1: position,
+				x2: crossStart + rulerSize,
+				y2: position,
+			  };
+
+		  ruler.appendChild(this._createSvgElement("line", tickAttributes));
+
+		  if (!isMajor || Math.abs(position - start) < rulerSize) continue;
+
+		  const inchValue = this._formatRulerInchValue(position / inchSize);
+		  const fontSize = rulerSize * 0.36;
+		  const labelAttributes = axis === "horizontal"
+			? {
+				class: "inch-ruler-label",
+				x: position,
+				y: crossStart + rulerSize * 0.42,
+				"font-size": fontSize,
+				"text-anchor": "middle",
+				"data-ruler-value": inchValue,
+			  }
+			: {
+				class: "inch-ruler-label",
+				x: crossStart + rulerSize * 0.42,
+				y: position,
+				"font-size": fontSize,
+				"text-anchor": "middle",
+				"dominant-baseline": "middle",
+				transform: `rotate(-90 ${this._formatBoardNumber(crossStart + rulerSize * 0.42)} ${this._formatBoardNumber(position)})`,
+				"data-ruler-value": inchValue,
+			  };
+
+		  ruler.appendChild(
+			this._createSvgElement("text", labelAttributes, inchValue),
+		  );
+		}
+	  }
+
+	  _createSvgElement(tagName, attributes = {}, textContent = "") {
+		const element = document.createElementNS(SVG_NS, tagName);
+
+		for (const [name, value] of Object.entries(attributes)) {
+		  element.setAttribute(name, this._formatBoardAttribute(value));
+		}
+
+		if (textContent !== "") {
+		  element.textContent = textContent;
+		}
+
+		return element;
+	  }
+
+	  _formatBoardAttribute(value) {
+		return typeof value === "number" ? this._formatBoardNumber(value) : String(value);
+	  }
+
+	  _formatRulerInchValue(value) {
+		const rounded = Math.abs(value) < 0.0001 ? 0 : Number(value.toFixed(4));
+		return String(rounded);
+	  }
+
+	  _positiveModulo(value, divisor) {
+		return ((value % divisor) + divisor) % divisor;
 	  }
 
 	  _syncInchGridPattern({
@@ -793,6 +1066,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	this.svg.style.width = `${this._formatBoardNumber(next.width)}px`;
 	this.svg.style.height = `${this._formatBoardNumber(next.height)}px`;
 	this._syncBoardLayerBounds(next);
+	this._ensureInchGrid();
   }
 
   _currentBoardViewBox() {

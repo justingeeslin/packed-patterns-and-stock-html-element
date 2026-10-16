@@ -33,6 +33,7 @@ const GRID_OPTION_ATTRIBUTES = [
   "board-pixels-per-mm",
   "grid-subdivisions-per-inch",
   "grid-major-inches",
+  "show-rulers",
 ];
 const BOOLEAN_PACK_OPTIONS = new Set([
   "include_stock",
@@ -439,6 +440,20 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		this._setOptionalNumberAttribute("grid-major-inches", value);
 	  }
 
+	  get showRulers() {
+		const value = this.getAttribute("show-rulers");
+		return value === null ? true : this._booleanAttributeValue(value);
+	  }
+
+	  set showRulers(value) {
+		if (value === null || value === undefined) {
+		  this.removeAttribute("show-rulers");
+		  return;
+		}
+
+		this.setAttribute("show-rulers", value ? "true" : "false");
+	  }
+
 		  attributeChangedCallback(name, oldValue, newValue) {
 		if (oldValue === newValue || !this.isConnected) return;
 
@@ -693,13 +708,20 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	  }
 
 	  _ensureInchRulers({ defs, viewBox, inchSize, minorSize }) {
+		const existingRulerLayer = this.svg.querySelector(
+		  'g[data-board-layer="inch-rulers"]',
+		);
+
+		if (!this.showRulers) {
+		  existingRulerLayer?.remove();
+		  return;
+		}
+
 		if (!viewBox) return;
 
 		this._ensureInchRulerStyles(defs);
 
-		let rulerLayer = this.svg.querySelector(
-		  'g[data-board-layer="inch-rulers"]',
-		);
+		let rulerLayer = existingRulerLayer;
 
 		if (!rulerLayer) {
 		  rulerLayer = document.createElementNS(SVG_NS, "g");

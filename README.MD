@@ -31,9 +31,36 @@ minor grid lines default to quarter-inch subdivisions:
 ```
 
 The rulers automatically update when the board grows or any of these grid
-attributes change. Their colors can be themed with CSS custom properties such
-as `--pattern-pack-ruler-background`, `--pattern-pack-ruler-border`,
-`--pattern-pack-ruler-tick`, and `--pattern-pack-ruler-label`.
+attributes change. The ruler markup and default light/dark styles are built
+into `PatternPackBoard`; consumers do not need to load a ruler stylesheet.
+
+Rulers are enabled by default. Omit `show-rulers` or set it to `true` to show
+them, and set it to `false` to hide them while keeping the inch grid:
+
+```html
+<!-- Rulers enabled (the default) -->
+<pattern-pack-board show-rulers="true">
+  <svg id="board" viewBox="0 0 1200 750"></svg>
+</pattern-pack-board>
+
+<!-- Rulers disabled -->
+<pattern-pack-board show-rulers="false">
+  <svg id="board" viewBox="0 0 1200 750"></svg>
+</pattern-pack-board>
+```
+
+The same setting can be changed at runtime through the `showRulers` property:
+
+```js
+const board = document.querySelector("pattern-pack-board");
+board.showRulers = false;
+board.showRulers = true;
+```
+
+No styling is required, but consumers can optionally theme the built-in ruler
+with CSS custom properties such as `--pattern-pack-ruler-background`,
+`--pattern-pack-ruler-border`, `--pattern-pack-ruler-tick`, and
+`--pattern-pack-ruler-label`.
 
 ## UploadablePalette image conversions
 

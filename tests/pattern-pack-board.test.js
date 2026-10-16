@@ -252,15 +252,47 @@ describe("PatternPackBoard", () => {
     const verticalRuler = rulerLayer.querySelector(
       '[data-ruler-axis="vertical"]',
     );
+    const rulerStyle = svg.querySelector("style#pattern-pack-inch-ruler-styles");
 
     expect(rulerLayer.getAttribute("data-board-layer")).toBe("inch-rulers");
     expect(rulerLayer.getAttribute("pointer-events")).toBe("none");
     expect(rulerLayer.getAttribute("aria-label")).toContain("in inches");
+    expect(rulerStyle.textContent).toContain("--pattern-pack-ruler-background");
     expect(horizontalRuler.querySelector('[data-ruler-value="1"]')).not.toBeNull();
     expect(horizontalRuler.querySelector('[data-ruler-value="2"]')).not.toBeNull();
     expect(verticalRuler.querySelector('[data-ruler-value="1"]')).not.toBeNull();
     expect(svg.querySelector("[data-ruler-corner]").textContent).toBe("in");
     expect(svg.lastElementChild).toBe(rulerLayer);
+  });
+
+  test("lets consumers disable and enable the built-in rulers", () => {
+    const { board } = createFixture({
+      attributes: ' show-rulers="false"',
+      svg: `
+		<svg id="board" xmlns="${SVG_NS}" viewBox="0 0 100 80"></svg>
+	  `,
+    });
+    const svg = board.querySelector("svg");
+
+    expect(board.showRulers).toBe(false);
+    expect(svg.querySelector("[data-pattern-pack-inch-rulers]")).toBeNull();
+
+    board.showRulers = true;
+
+    expect(board.getAttribute("show-rulers")).toBe("true");
+    expect(board.showRulers).toBe(true);
+    expect(svg.querySelector("[data-pattern-pack-inch-rulers]")).not.toBeNull();
+
+    board.showRulers = false;
+
+    expect(board.getAttribute("show-rulers")).toBe("false");
+    expect(svg.querySelector("[data-pattern-pack-inch-rulers]")).toBeNull();
+
+    board.showRulers = null;
+
+    expect(board.hasAttribute("show-rulers")).toBe(false);
+    expect(board.showRulers).toBe(true);
+    expect(svg.querySelector("[data-pattern-pack-inch-rulers]")).not.toBeNull();
   });
 
   test("keeps ruler marks aligned with customized grid measurements", () => {

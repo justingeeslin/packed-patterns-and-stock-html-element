@@ -234,8 +234,13 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 
 		.status {
-		  margin: 0.5rem 0 0;
+		  box-sizing: border-box;
+		  margin: 0.75rem 0;
+		  padding: 0.75rem 1rem;
+		  border: 1px solid transparent;
+		  border-radius: 0.375rem;
 		  color: #52606d;
+		  font-weight: 600;
 		}
 
 		.status:empty {
@@ -243,10 +248,14 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 
 		.status.error {
+		  border-color: #fecdca;
+		  background: #fef3f2;
 		  color: #b42318;
 		}
 
 		.status.warning {
+		  border-color: #fedf89;
+		  background: #fffaeb;
 		  color: #9a6700;
 		}
 
@@ -603,7 +612,7 @@ export class PatternPackBoard extends DraggableSvgBoard {
 		}
 		
 		this._replaceBoardSvg(svgResults);
-		this._reportPackPlacement(packOutput);
+		this._reportPackPlacement(data);
 		
 		super.connectedCallback?.();
 	
@@ -1520,14 +1529,14 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	);
   }
 
-  _reportPackPlacement(output) {
-	const unplaced = this._countValue(output?.unplaced);
+  _reportPackPlacement(data) {
+	const output = this._packOutput(data);
+	const { placed, unplaced } = this._packPlacementCounts(data, output);
 	if (!unplaced) {
 	  this._setStatus("");
 	  return null;
 	}
 
-	const placed = this._countValue(output?.placed);
 	const message = this._packPlacementMessage({ placed, unplaced });
 
 	this._setStatus(message, "warning");
@@ -1545,6 +1554,27 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	);
 
 	return message;
+  }
+
+  _packPlacementCounts(data, output = this._packOutput(data)) {
+	const sources = [output, data, data?.output].filter(
+	  (source, index, values) =>
+		source &&
+		typeof source === "object" &&
+		values.indexOf(source) === index,
+	);
+	const unplacedSource = sources.find(
+	  (source) => this._countValue(source.unplaced) !== null,
+	);
+	const unplaced = this._countValue(unplacedSource?.unplaced);
+	const placedSource = [unplacedSource, ...sources].find(
+	  (source) => this._countValue(source?.placed) !== null,
+	);
+
+	return {
+	  placed: this._countValue(placedSource?.placed),
+	  unplaced,
+	};
   }
 
   _packPlacementMessage({ placed, unplaced }) {

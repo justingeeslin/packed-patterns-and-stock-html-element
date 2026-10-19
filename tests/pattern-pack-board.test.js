@@ -593,6 +593,48 @@ describe("PatternPackBoard", () => {
 	}));
   });
 
+  test("warns when placement counts are outside the wrapped SVG output", async () => {
+	const { board } = createFixture({
+	  endpoint: "/api/runpod/runsync",
+	});
+	const incompleteSpy = vi.fn();
+	const message =
+	  "1 piece was placed; 2 pieces could not fit on the available stock.";
+
+	board.addEventListener("pack-incomplete", incompleteSpy);
+
+	vi.stubGlobal(
+	  "fetch",
+	  vi.fn().mockResolvedValue(
+		jsonResponse({
+		  status: "COMPLETED",
+		  output: {
+			outputs: [
+			  { sheet_index: 0, svg: workerResultSvg({ id: "split-output" }) },
+			],
+		  },
+		  placed: 1,
+		  unplaced: "2",
+		}),
+	  ),
+	);
+
+	await board.syncNow();
+
+	expect(board.querySelector("#split-output")).not.toBeNull();
+	expect(board.statusEl.textContent).toBe(message);
+	expect(board.statusEl.classList.contains("warning")).toBe(true);
+	expect(getComputedStyle(board.statusEl).backgroundColor).toBe(
+	  "rgb(255, 250, 235)",
+	);
+	expect(incompleteSpy).toHaveBeenCalledTimes(1);
+	expect(incompleteSpy.mock.calls[0][0].detail).toEqual(expect.objectContaining({
+	  message,
+	  placed: 1,
+	  unplaced: 2,
+	}));
+  });
+
   test("reports failed packs in the board status", async () => {
 	const { board } = createFixture({
 	  endpoint: "/api/pack/irregular",

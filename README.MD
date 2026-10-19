@@ -153,6 +153,16 @@ Open `http://127.0.0.1:5173/example.html`,
 
 You can also override an example endpoint with `?endpoint=...`.
 
+To test incomplete-pack warnings without a worker, start Vite normally:
+
+```shell
+./node_modules/.bin/vite --host 127.0.0.1
+```
+
+Then open `http://127.0.0.1:5173/example-incomplete-pack.html`. The page
+provides mocked responses for partially packed, entirely unplaced, and fully
+packed results.
+
 The irregular-stock contract test is skipped unless the local worker endpoint is
 provided. Start the local worker endpoint, then run:
 

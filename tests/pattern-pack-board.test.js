@@ -554,6 +554,7 @@ describe("PatternPackBoard", () => {
 	  endpoint: "/api/runpod/runsync",
 	});
 	const incompleteSpy = vi.fn();
+	const svg = workerResultSvg({ id: "partial-output" });
 	const message =
 	  "0 pieces were placed; 14 pieces could not fit on the available stock.";
 
@@ -566,8 +567,9 @@ describe("PatternPackBoard", () => {
 		  status: "COMPLETED",
 		  output: {
 			outputs: [
-			  { sheet_index: 0, svg: workerResultSvg({ id: "partial-output" }) },
+			  { sheet_index: 0, svg },
 			],
+			svg,
 			placed: 0,
 			unplaced: 14,
 		  },
@@ -593,13 +595,14 @@ describe("PatternPackBoard", () => {
 	}));
   });
 
-  test("warns when placement counts are outside the wrapped SVG output", async () => {
+  test("warns when a RunPod output reports unplaced pieces", async () => {
 	const { board } = createFixture({
 	  endpoint: "/api/runpod/runsync",
 	});
 	const incompleteSpy = vi.fn();
+	const svg = workerResultSvg({ id: "sample-output" });
 	const message =
-	  "1 piece was placed; 2 pieces could not fit on the available stock.";
+	  "5 pieces were placed; 5 pieces could not fit on the available stock.";
 
 	board.addEventListener("pack-incomplete", incompleteSpy);
 
@@ -609,19 +612,18 @@ describe("PatternPackBoard", () => {
 		jsonResponse({
 		  status: "COMPLETED",
 		  output: {
-			outputs: [
-			  { sheet_index: 0, svg: workerResultSvg({ id: "split-output" }) },
-			],
+			outputs: [{ sheet_index: 0, svg }],
+			svg,
+			placed: 5,
+			unplaced: "5",
 		  },
-		  placed: 1,
-		  unplaced: "2",
 		}),
 	  ),
 	);
 
 	await board.syncNow();
 
-	expect(board.querySelector("#split-output")).not.toBeNull();
+	expect(board.querySelector("#sample-output")).not.toBeNull();
 	expect(board.statusEl.textContent).toBe(message);
 	expect(board.statusEl.classList.contains("warning")).toBe(true);
 	expect(getComputedStyle(board.statusEl).backgroundColor).toBe(
@@ -630,8 +632,12 @@ describe("PatternPackBoard", () => {
 	expect(incompleteSpy).toHaveBeenCalledTimes(1);
 	expect(incompleteSpy.mock.calls[0][0].detail).toEqual(expect.objectContaining({
 	  message,
-	  placed: 1,
-	  unplaced: 2,
+	  output: expect.objectContaining({
+		placed: 5,
+		unplaced: "5",
+	  }),
+	  placed: 5,
+	  unplaced: 5,
 	}));
   });
 

@@ -56,10 +56,10 @@ function getOwnedPieces(board, owner, pieceKind) {
   );
 }
 
-async function setQuantity(control, value) {
+async function setQuantity(control, value, eventName = "input") {
   control.qtyInput.value = String(value);
   control.qtyInput.dispatchEvent(
-	new Event("input", {
+	new Event(eventName, {
 	  bubbles: true,
 	  composed: true,
 	}),
@@ -201,10 +201,10 @@ describe("PieceQuantityControl", () => {
 	expect(control.boardSvgElement).toBe(board);
   });
 
-  test("adds SVG pieces when the requested quantity increases", async () => {
+  test.each(["input", "change"])("adds SVG pieces when the requested quantity increases via %s", async (eventName) => {
 	const { control, board } = createFixture();
 
-	await setQuantity(control, 3);
+	await setQuantity(control, 3, eventName);
 
 	const pieces = getOwnedPieces(
 	  board,
@@ -577,7 +577,7 @@ describe("PieceQuantityControl", () => {
 	);
   });
 
-  test("removes the input listener when disconnected", async () => {
+  test.each(["input", "change"])("removes the %s listener when disconnected", async (eventName) => {
 	const { control, board } = createFixture();
 
 	const input = control.qtyInput;
@@ -585,7 +585,7 @@ describe("PieceQuantityControl", () => {
 	control.remove();
 
 	input.value = "3";
-	input.dispatchEvent(new Event("input"));
+	input.dispatchEvent(new Event(eventName));
 
 	await nextFrame();
 

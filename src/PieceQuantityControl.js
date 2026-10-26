@@ -221,6 +221,7 @@ export class PieceQuantityControl extends HTMLElement {
 	console.log('Setting the board SVG element ', this.boardId)
 	this.boardSvgElement = document.querySelector('#' + this.boardId)
 	this.qtyInput.addEventListener("input", this._onInput);
+	this.qtyInput.addEventListener("change", this._onInput);
 	this.debugButton.addEventListener("click", this._onDebugButtonClick);
 	this.debugCloseButton.addEventListener("click", this._onDebugClose);
 	this.debugModalEl.addEventListener("click", this._onDebugModalClick);
@@ -230,6 +231,7 @@ export class PieceQuantityControl extends HTMLElement {
 
   disconnectedCallback() {
 	this.qtyInput.removeEventListener("input", this._onInput);
+	this.qtyInput.removeEventListener("change", this._onInput);
 	this.debugButton.removeEventListener("click", this._onDebugButtonClick);
 	this.debugCloseButton.removeEventListener("click", this._onDebugClose);
 	this.debugModalEl.removeEventListener("click", this._onDebugModalClick);
@@ -491,6 +493,9 @@ export class PieceQuantityControl extends HTMLElement {
   }
 
   _reconcileQuantity(desiredCount) {
+	this.boardSvgElement = document.getElementById(this.boardId);
+	if (!this.boardSvgElement) return;
+
 	const currentNodes = this._getOwnedNodes(this.boardSvgElement);
 	const currentUnits = this._getOwnedUnits(currentNodes);
 	const currentCount = currentUnits.length;

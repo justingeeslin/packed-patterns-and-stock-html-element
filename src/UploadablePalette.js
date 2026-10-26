@@ -756,7 +756,7 @@ export class UploadablePalette extends HTMLElement {
     control.setAttribute("board", this.boardId);
     control.setAttribute("piece-kind", pieceKind);
     control.setAttribute("label", label);
-    control.setAttribute("value", "0");
+    control.setAttribute("value", "1");
 
     control.appendChild(this._createPreviewSvg(uploadedSvg));
     control.appendChild(this._createShapeTemplate(uploadedSvg));
@@ -775,6 +775,14 @@ export class UploadablePalette extends HTMLElement {
           fileName,
           debugImages,
         },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+
+    // Let upload listeners customize IDs and shape roles before adding to the board.
+    control.qtyInput.dispatchEvent(
+      new Event("change", {
         bubbles: true,
         composed: true,
       }),

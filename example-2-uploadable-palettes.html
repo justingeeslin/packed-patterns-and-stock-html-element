@@ -248,7 +248,6 @@
 
         palette.element.addEventListener("svg-uploaded", (event) => {
           namespaceControl(event.detail.control, palette.prefix);
-          addUploadedControlToBoard(event.detail.control);
           console.log(`${palette.prefix} uploaded SVG added as`, event.detail.control.id);
         });
       }
@@ -268,17 +267,6 @@
         control.id = `${prefix}-${currentId}`;
         control.setAttribute("piece-kind", `${prefix}-${currentKind}`);
         control.dataset.namespacedBy = prefix;
-      }
-
-      function addUploadedControlToBoard(control) {
-        const quantity = Math.max(control.value, 1);
-        control.qtyInput.value = String(quantity);
-        control.qtyInput.dispatchEvent(
-          new Event("input", {
-            bubbles: true,
-            composed: true,
-          }),
-        );
       }
     </script>
   </body>

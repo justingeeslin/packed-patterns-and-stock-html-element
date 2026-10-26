@@ -83,7 +83,11 @@ with CSS custom properties such as `--pattern-pack-ruler-background`,
 ## UploadablePalette image conversions
 
 `<uploadable-palette>` adds uploaded SVG files directly as
-`<piece-quantity-control>` entries. DXF uploads are posted to
+`<piece-quantity-control>` entries. Each uploaded control starts at quantity `1`
+and fires a bubbling, composed `change` event on its numeric input to add its
+SVG to the board automatically. This happens after `svg-uploaded` listeners run,
+so hosts can customize control IDs or template roles before initial placement.
+DXF uploads are posted to
 `${opencv-endpoint}/dxf-to-svg/` with `separate_shapes=true`. Each SVG in the
 returned `svgs` array becomes its own pattern piece with a separate
 `<piece-quantity-control>` and a numbered label. Single-SVG responses are also

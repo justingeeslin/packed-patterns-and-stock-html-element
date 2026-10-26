@@ -346,8 +346,10 @@ describe("UploadablePalette", () => {
       .toBe(true);
   });
 
-  test("adds an uploaded SVG as a piece quantity control", async () => {
-    const { palette } = createFixture();
+  test("defaults an uploaded SVG to one and fires change to add it to the board", async () => {
+    const { palette, board } = createFixture();
+    const onChange = vi.fn();
+    palette.addEventListener("change", onChange);
 
     const [event] = await uploadFiles(palette, [createSvgFile()]);
     const control = event.detail.control;
@@ -357,13 +359,18 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("board")).toBe("board");
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");
-    expect(control.getAttribute("value")).toBe("0");
+    expect(control.getAttribute("value")).toBe("1");
+    expect(control.qtyInput.value).toBe("1");
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0].composed).toBe(true);
+    expect(board.querySelectorAll(`[data-owner-control="${control.id}"]`))
+      .toHaveLength(1);
     expect(palette.shadowRoot.getElementById(control.id)).toBe(control);
     expect(referenceControls(palette).modal.hidden).toBe(true);
   });
 
   test("converts an uploaded photo into an SVG piece quantity control", async () => {
-    const { palette } = createFixture();
+    const { palette, board } = createFixture();
 
     const fetchMock = vi
       .fn()
@@ -439,6 +446,9 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("piece-kind")).toBe("uploaded-front-bodice-0");
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.querySelector("#front-path")).not.toBeNull();
+    expect(control.value).toBe(1);
+    expect(board.querySelectorAll(`[data-owner-control="${control.id}"]`))
+      .toHaveLength(1);
   });
 
   test("converts an uploaded DXF into an SVG piece quantity control", async () => {
@@ -512,7 +522,9 @@ describe("UploadablePalette", () => {
       [back, "scaled-path", "front-path"],
     ]) {
       expect(control.getAttribute("board")).toBe("board");
-      expect(control.value).toBe(0);
+      expect(control.value).toBe(1);
+      expect(board.querySelectorAll(`[data-owner-control="${control.id}"]`))
+        .toHaveLength(1);
       expect(control.debugImages).toHaveLength(2);
       const preview = control.querySelector('svg[slot="preview"]');
       const template = control.querySelector("template").content;
@@ -835,7 +847,17 @@ describe("UploadablePalette", () => {
 
     const [event] = await uploadFiles(palette, [createSvgFile()]);
 
-    expect(event.detail.control.getAttribute("board")).toBe("alternate-board");
+    const control = event.detail.control;
+    expect(control.getAttribute("board")).toBe("alternate-board");
+    expect(control.value).toBe(1);
+
+    const board = document.createElementNS(SVG_NS, "svg");
+    board.id = "alternate-board";
+    document.body.appendChild(board);
+    control.qtyInput.dispatchEvent(new Event("change"));
+
+    expect(board.querySelectorAll(`[data-owner-control="${control.id}"]`))
+      .toHaveLength(1);
   });
 
   test("creates a miniaturized preview SVG from the uploaded SVG", async () => {
@@ -960,20 +982,8 @@ describe("UploadablePalette", () => {
       control.dataset.namespacedBy = prefix;
     };
 
-    const addUploadedControlToBoard = (control) => {
-      const quantity = Math.max(control.value, 1);
-      control.qtyInput.value = String(quantity);
-      control.qtyInput.dispatchEvent(
-        new Event("input", {
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    };
-
     palette.addEventListener("svg-uploaded", (event) => {
       namespaceControl(event.detail.control, "palette-a");
-      addUploadedControlToBoard(event.detail.control);
     });
 
     const [event] = await uploadFiles(palette, [
@@ -1001,6 +1011,7 @@ describe("UploadablePalette", () => {
           "palette-a-uploaded-spaced-shapes-0",
       ),
     ).toBe(true);
+    expect(board.querySelectorAll("[data-owner-control]")).toHaveLength(2);
   });
 
   test("anchors uploaded SVGs by their visible bounds before adding them to the board", async () => {
@@ -1955,24 +1966,27 @@ describe("UploadablePalette", () => {
     expect(addSvgControl).not.toHaveBeenCalled();
   });
 
-  test("uploaded controls can add their SVG content to the board", async () => {
+  test.each(["garment", "stock"])("uploads automatically add %s SVG content to the board", async (role) => {
     const { palette, board } = createFixture();
+    palette.addEventListener("svg-uploaded", (event) => {
+      const template = event.detail.control.shapeTemplate;
+      template.content.querySelector("g[role]").setAttribute("role", role);
+    });
 
-    const [event] = await uploadFiles(palette, [createSvgFile()]);
-    const control = event.detail.control;
+    await uploadFiles(palette, [createSvgFile()]);
 
-    await setQuantity(control, 1);
-
-    const piece = board.querySelector(
+    const pieces = board.querySelectorAll(
       '[data-owner-control="uploaded-front-bodice-0-control"]',
     );
+    expect(pieces).toHaveLength(1);
+    const [piece] = pieces;
 
     expect(piece).not.toBeNull();
     expect(piece.getAttribute("data-piece-kind")).toBe("uploaded-front-bodice-0");
     expect(piece.getAttribute("data-owner-control")).toBe(
       "uploaded-front-bodice-0-control",
     );
-    expect(piece.getAttribute("role")).toBe("garment");
+    expect(piece.getAttribute("role")).toBe(role);
     expect(piece.querySelector("#front-path")).not.toBeNull();
     expect(piece.querySelector("#notch")).not.toBeNull();
   });

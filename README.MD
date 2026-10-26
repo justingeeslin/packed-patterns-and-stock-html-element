@@ -84,8 +84,10 @@ with CSS custom properties such as `--pattern-pack-ruler-background`,
 
 `<uploadable-palette>` adds uploaded SVG files directly as
 `<piece-quantity-control>` entries. DXF uploads are posted to
-`${opencv-endpoint}/dxf-to-svg/` and the returned SVG is added through the same
-path. Non-SVG image uploads are posted to `photo-upload-endpoint` first, then
+`${opencv-endpoint}/dxf-to-svg/` with `separate_shapes=true`. Each SVG in the
+returned `svgs` array becomes its own pattern piece with a separate
+`<piece-quantity-control>` and a numbered label. Single-SVG responses are also
+supported. Non-SVG image uploads are posted to `photo-upload-endpoint` first, then
 the returned file URL is sent to the OpenCV SVG endpoint:
 
 ```html
@@ -106,8 +108,8 @@ The OpenCV request is sent as
 and the returned SVG is added through the same path as a directly uploaded SVG.
 For local DXF conversion, set `opencv-endpoint="http://127.0.0.1:8000"` so
 DXF files post to `http://127.0.0.1:8000/dxf-to-svg/`.
-DXF conversion requests include `scale=0.1` by default; customize that value
-with `dxf-conversion-scale`.
+DXF conversion requests include `scale=0.1&separate_shapes=true` by default;
+customize the scale with `dxf-conversion-scale`.
 
 JSON OpenCV responses may include `debug_image_urls`, a list of snapshots from
 the CV pipeline. When present, the generated `<piece-quantity-control>` shows a

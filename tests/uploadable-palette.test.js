@@ -462,6 +462,7 @@ describe("UploadablePalette", () => {
     );
     expect(dxfUrl.pathname).toBe("/dxf-to-svg/");
     expect(dxfUrl.searchParams.get("scale")).toBe("0.1");
+    expect(dxfUrl.searchParams.get("separate_shapes")).toBe("true");
     expect(options.method).toBe("POST");
     expect(options.body).toBeInstanceOf(FormData);
     expect(options.body.get("file").name).toBe("front-bodice.dxf");
@@ -472,6 +473,127 @@ describe("UploadablePalette", () => {
     expect(control.getAttribute("label")).toBe("Front Bodice");
     expect(control.querySelector("#front-path")).not.toBeNull();
     expect(event.detail.debugImages).toHaveLength(2);
+  });
+
+  test("adds each separated DXF SVG with its own preview and independent quantity", async () => {
+    const { palette, board } = createFixture();
+    const initialControls = palette.controlsEl.children.length;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        jsonResponse({
+          svgs: [SIMPLE_SVG, DXF_SCALED_SVG],
+          debug_image_urls: DEBUG_IMAGE_URLS,
+        }),
+      ),
+    );
+
+    const uploads = waitForUploadEvents(palette, 2);
+    dispatchFiles(palette, [createDxfFile()]);
+    const events = await uploads;
+    const [front, back] = events.map((event) => event.detail.control);
+
+    expect(palette.controlsEl.children).toHaveLength(initialControls + 2);
+    expect(events.map((event) => event.detail.fileName)).toEqual([
+      "front-bodice.dxf",
+      "front-bodice.dxf",
+    ]);
+    expect([front.id, back.id]).toEqual([
+      "uploaded-front-bodice-0-control",
+      "uploaded-front-bodice-1-control",
+    ]);
+    expect([front.getAttribute("label"), back.getAttribute("label")]).toEqual([
+      "Front Bodice 1",
+      "Front Bodice 2",
+    ]);
+
+    for (const [control, shapeId, otherShapeId] of [
+      [front, "front-path", "scaled-path"],
+      [back, "scaled-path", "front-path"],
+    ]) {
+      expect(control.getAttribute("board")).toBe("board");
+      expect(control.value).toBe(0);
+      expect(control.debugImages).toHaveLength(2);
+      const preview = control.querySelector('svg[slot="preview"]');
+      const template = control.querySelector("template").content;
+      expect(preview.querySelector(`#${shapeId}`)).not.toBeNull();
+      expect(template.querySelector(`#${shapeId}`)).not.toBeNull();
+      expect(template.querySelector(`#${otherShapeId}`)).toBeNull();
+    }
+
+    await setQuantity(front, 2);
+    await setQuantity(back, 1);
+
+    const piecesFor = (control) =>
+      board.querySelectorAll(`[data-owner-control="${control.id}"]`);
+    expect(piecesFor(front)).toHaveLength(2);
+    expect(piecesFor(back)).toHaveLength(1);
+    expect(piecesFor(front)[0].querySelector("#front-path")).not.toBeNull();
+    expect(piecesFor(back)[0].querySelector("#scaled-path")).not.toBeNull();
+
+    await setQuantity(front, 0);
+
+    expect(piecesFor(front)).toHaveLength(0);
+    expect(piecesFor(back)).toHaveLength(1);
+    expect(back.value).toBe(1);
+    expect(palette.statusEl.textContent).toBe("");
+    expect(palette.fileInput.value).toBe("");
+  });
+
+  test("keeps all separated pieces when DXF and SVG files are uploaded together", async () => {
+    const { palette } = createFixture();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn()
+        .mockResolvedValueOnce(jsonResponse({ svgs: [SIMPLE_SVG, DXF_SCALED_SVG] }))
+        .mockResolvedValueOnce(jsonResponse({ svgs: [SIMPLE_SVG] })),
+    );
+
+    const uploads = waitForUploadEvents(palette, 4);
+    dispatchFiles(palette, [createDxfFile(), createSvgFile(), createDxfFile()]);
+    const events = await uploads;
+
+    expect(events.map((event) => event.detail.controlId)).toEqual([
+      "uploaded-front-bodice-0-control",
+      "uploaded-front-bodice-1-control",
+      "uploaded-front-bodice-2-control",
+      "uploaded-front-bodice-3-control",
+    ]);
+    expect(events.map((event) => event.detail.label)).toEqual([
+      "Front Bodice 1",
+      "Front Bodice 2",
+      "Front Bodice",
+      "Front Bodice",
+    ]);
+  });
+
+  test.each([
+    { name: "empty array", svgs: [], message: "OpenCV response did not include an SVG." },
+    { name: "non-array", svgs: null, message: "OpenCV response did not include an SVG." },
+    { name: "blank entry", svgs: [SIMPLE_SVG, ""], message: "OpenCV response did not include an SVG." },
+    { name: "non-string entry", svgs: [SIMPLE_SVG, 42], message: "OpenCV response did not include an SVG." },
+    { name: "invalid SVG", svgs: [SIMPLE_SVG, "<not-svg/>"], message: "OpenCV response did not include a valid SVG." },
+  ])("rejects $name in separated DXF results without adding partial controls", async ({ svgs, message }) => {
+    const { palette } = createFixture();
+    const initialControls = palette.controlsEl.children.length;
+    const errorEvent = waitForEvent(palette, "svg-upload-error");
+    const onUploaded = vi.fn();
+    palette.addEventListener("svg-uploaded", onUploaded);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        jsonResponse({ svgs, debug_image_urls: DEBUG_IMAGE_URLS }),
+      ),
+    );
+
+    dispatchFiles(palette, [createDxfFile()]);
+    const event = await errorEvent;
+
+    expect(event.detail.failures[0].error.message).toBe(message);
+    expect(event.detail.debugImages).toHaveLength(2);
+    expect(palette.controlsEl.children).toHaveLength(initialControls);
+    expect(onUploaded).not.toHaveBeenCalled();
+    expect(palette.statusEl.textContent).toBe("1 DXF could not be uploaded.");
   });
 
   test("uses the OpenCV endpoint attribute as the DXF conversion base URL", async () => {
@@ -489,6 +611,7 @@ describe("UploadablePalette", () => {
     expect(dxfUrl.origin).toBe("http://127.0.0.1:8000");
     expect(dxfUrl.pathname).toBe("/dxf-to-svg/");
     expect(dxfUrl.searchParams.get("scale")).toBe("0.1");
+    expect(dxfUrl.searchParams.get("separate_shapes")).toBe("true");
   });
 
   test("uses the dxf-conversion-scale attribute for DXF conversion requests", async () => {

@@ -89,6 +89,16 @@ const SVG_NON_DRAWING_TAGS = new Set([
 const SVG_BLOCKED_IMPORT_TAGS = new Set(["foreignObject", "script"]);
 const SVG_GRAPHIC_SELECTOR = Array.from(SVG_GRAPHIC_TAGS).join(",");
 const ROLE_STROKE_CSS = `
+[role="stock"],
+[role="stock"] * {
+  pointer-events: none !important;
+}
+
+[role="stock"] [role="garment"],
+[role="stock"] [role="garment"] * {
+  pointer-events: all !important;
+}
+
 [role="garment"],
 ${SVG_STROKE_GRAPHIC_TAGS.map((tag) => `[role="garment"] ${tag}`).join(",\n")} {
   stroke: var(--pattern-pack-garment-stroke, #005fcc) !important;
@@ -506,9 +516,9 @@ export class PatternPackBoard extends DraggableSvgBoard {
   }
 
   _getDraggableTarget(node) {
-	if (node?.closest?.('[role="stock"]')) return null;
-
 	const target = super._getDraggableTarget(node);
+	const roleNode = target?.closest('[role="stock"], [role="garment"]');
+	if (roleNode?.getAttribute("role") === "stock") return null;
 
 	// Moving a wrapper around stock would also move the stock itself.
 	return target?.querySelector('[role="stock"]') ? null : target;

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import {
   DEFAULT_BOARD_PIXELS_PER_MM,
@@ -156,6 +157,63 @@ describe("PatternPackBoard", () => {
   test("registers the custom element", () => {
 	expect(customElements.get("pattern-pack-board")).toBe(PatternPackBoard);
   });
+
+  test.each(["behind", "in front of", "around", "added over"])(
+    "drags pieces with stock %s them while keeping stock fixed",
+    async (placement) => {
+      const pieceMarkup = `
+        <g id="draggable-piece" role="garment" data-draggable="true" transform="translate(80 60)">
+          <rect id="piece-shape" width="40" height="40" fill="transparent"></rect>
+        </g>`;
+      const stockMarkup = `
+        <g id="fixed-stock" role="stock" data-draggable="true" pointer-events="all">
+          <rect x="30" y="20" width="320" height="200" fill="transparent" pointer-events="all"></rect>
+          ${placement === "around" ? pieceMarkup : ""}
+        </g>`;
+      const contents = placement === "around"
+        ? stockMarkup
+        : placement === "behind"
+          ? stockMarkup + pieceMarkup
+          : pieceMarkup + (placement === "in front of" ? stockMarkup : "");
+      const { board } = createFixture({
+        endpoint: "",
+        attributes: ' show-rulers="false"',
+        svg: `<svg id="board" xmlns="${SVG_NS}" width="400" height="240" viewBox="0 0 400 240">${contents}</svg>`,
+      });
+      const svg = board.querySelector("svg");
+      if (placement === "added over") {
+        svg.insertAdjacentHTML("beforeend", stockMarkup);
+        await nextFrame();
+      }
+      const piece = svg.querySelector("#draggable-piece");
+      const shape = svg.querySelector("#piece-shape");
+      const stock = svg.querySelector("#fixed-stock");
+      const stockTransform = stock.getAttribute("transform");
+      const pieceTransform = piece.getAttribute("transform");
+      const box = shape.getBoundingClientRect();
+      const dragStart = vi.fn();
+      board.addEventListener("dragstart", dragStart);
+
+      expect(document.elementFromPoint(
+        box.x + box.width / 2,
+        box.y + box.height / 2,
+      )).toBe(shape);
+
+      await userEvent.dragAndDrop(shape, svg, {
+        targetPosition: { x: 200, y: 140 },
+      });
+
+      expect(piece.getAttribute("transform")).not.toBe(pieceTransform);
+      expect(stock.getAttribute("transform")).toBe(stockTransform);
+      expect(dragStart).toHaveBeenCalledTimes(1);
+      expect(dragStart.mock.calls[0][0].detail.element).toBe(piece);
+
+      dragStart.mockClear();
+      await userEvent.click(svg, { position: { x: 45, y: 35 } });
+      expect(dragStart).not.toHaveBeenCalled();
+      expect(stock.getAttribute("transform")).toBe(stockTransform);
+    },
+  );
 
   test("adds visible role-based strokes for garment and stock pieces", () => {
     const { board } = createFixture({

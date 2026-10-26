@@ -1,5 +1,6 @@
 // src/PieceQuantityControl.js
 const SVG_NS = "http://www.w3.org/2000/svg";
+const PREVIEW_GRAPHIC_SELECTOR = "circle,ellipse,line,path,polygon,polyline,rect,use";
 
 export class PieceQuantityControl extends HTMLElement {
   static get observedAttributes() {
@@ -29,8 +30,24 @@ export class PieceQuantityControl extends HTMLElement {
 		}
 		
 				
-		.preview {
-			display:block;
+		::slotted(svg[slot="preview"]) {
+		  --piece-preview-stroke: var(--pattern-pack-garment-stroke, #005fcc);
+		  display: block;
+		  overflow: visible;
+		}
+
+		::slotted(svg[slot="preview"][data-preview-role="stock"]) {
+		  --piece-preview-stroke: var(--pattern-pack-stock-stroke, #007a3d);
+		}
+
+		@media (prefers-color-scheme: dark) {
+		  ::slotted(svg[slot="preview"]) {
+			--piece-preview-stroke: var(--pattern-pack-garment-stroke-dark, var(--pattern-pack-garment-stroke, #5aa2ff));
+		  }
+
+		  ::slotted(svg[slot="preview"][data-preview-role="stock"]) {
+			--piece-preview-stroke: var(--pattern-pack-stock-stroke-dark, var(--pattern-pack-stock-stroke, #38d982));
+		  }
 		}
 
 		.label {
@@ -226,6 +243,7 @@ export class PieceQuantityControl extends HTMLElement {
 	this.debugCloseButton.addEventListener("click", this._onDebugClose);
 	this.debugModalEl.addEventListener("click", this._onDebugModalClick);
 	this.shadowRoot.addEventListener("keydown", this._onDebugKeydown);
+	this.shadowRoot.addEventListener("slotchange", this._renderPreview);
 	this._renderDebugImages();
   }
 
@@ -236,6 +254,7 @@ export class PieceQuantityControl extends HTMLElement {
 	this.debugCloseButton.removeEventListener("click", this._onDebugClose);
 	this.debugModalEl.removeEventListener("click", this._onDebugModalClick);
 	this.shadowRoot.removeEventListener("keydown", this._onDebugKeydown);
+	this.shadowRoot.removeEventListener("slotchange", this._renderPreview);
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
@@ -313,13 +332,32 @@ export class PieceQuantityControl extends HTMLElement {
   _onInput = () => {
 	const desired = Math.max(0, Number.parseInt(this.qtyInput.value || "0", 10) || 0);
 	this.value = desired;
+	this._renderPreview();
 	this._reconcileQuantity(desired);
   };
 
   _render() {
 	this.labelEl.textContent = this.label;
 	this.qtyInput.value = String(this.value);
+	this._renderPreview();
   }
+
+  _renderPreview = () => {
+	const role = this.shapeTemplate?.content
+	  .querySelector('[role="garment"], [role="stock"]')
+	  ?.getAttribute("role") || "garment";
+
+	for (const preview of this.querySelectorAll('svg[slot="preview"]')) {
+	  preview.setAttribute("data-preview-role", role);
+
+	  // Slotted SVG descendants need their own styles to override uploaded strokes.
+	  for (const graphic of preview.querySelectorAll(PREVIEW_GRAPHIC_SELECTOR)) {
+		graphic.style.setProperty("stroke", "var(--piece-preview-stroke)", "important");
+		graphic.style.setProperty("stroke-width", "2px", "important");
+		graphic.style.setProperty("vector-effect", "non-scaling-stroke", "important");
+	  }
+	}
+  };
 
   _renderDebugImages() {
 	if (!this.debugButton || !this.debugListEl) return;

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PatternPackBoard Incomplete Pack Example</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+      }
+
+      main {
+        display: grid;
+        gap: 20px;
+        margin: 0 auto;
+        max-width: 960px;
+      }
+
+      .test-controls {
+        align-items: end;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 600;
+      }
+
+      select {
+        font: inherit;
+        padding: 8px;
+      }
+
+      #eventLog {
+        margin: 0;
+        min-height: 1.5em;
+      }
+
+      pattern-pack-board {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Incomplete pack warning</h1>
+        <p>
+          Choose a response scenario, then use the board’s
+          <strong>Pack Garment Pattern Pieces</strong> button. This page mocks
+          the endpoint, so no packing worker is required.
+        </p>
+      </header>
+
+      <div class="test-controls">
+        <label for="scenario">
+          Mock response
+          <select id="scenario">
+            <option value="partial">Some pieces unplaced</option>
+            <option value="all">All pieces unplaced</option>
+            <option value="complete">All pieces placed</option>
+          </select>
+        </label>
+        <p id="eventLog" role="status" aria-live="polite"></p>
+      </div>
+
+      <pattern-pack-board
+        endpoint="/__mock_incomplete_pack"
+        controls
+        include-stock="true"
+        partial-solution="true"
+      >
+        <svg
+          id="board"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 640 360"
+          width="640"
+          height="360"
+          aria-label="Garment pieces and stock"
+        >
+          <rect width="640" height="360" fill="white"></rect>
+          <rect
+            id="stock"
+            role="stock"
+            x="20"
+            y="20"
+            width="360"
+            height="300"
+            fill="transparent"
+          ></rect>
+          <rect role="garment" x="420" y="40" width="120" height="80"></rect>
+          <rect role="garment" x="420" y="140" width="120" height="80"></rect>
+          <rect role="garment" x="420" y="240" width="120" height="80"></rect>
+        </svg>
+      </pattern-pack-board>
+    </main>
+
+    <script type="module">
+      import "./src/PatternPackBoard.js";
+
+      const scenarioSelect = document.querySelector("#scenario");
+      const eventLog = document.querySelector("#eventLog");
+      const board = document.querySelector("pattern-pack-board");
+      const nativeFetch = window.fetch.bind(window);
+
+      const packedSvg = (placed) => {
+        const pieces = Array.from({ length: placed }, (_, index) => {
+          const x = 60 + (index * 100);
+          return `<rect role="garment" x="${x}" y="90" width="80" height="60"></rect>`;
+        }).join("");
+
+        return `
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+            <rect width="640" height="360" fill="white"></rect>
+            <rect role="stock" x="20" y="20" width="360" height="300" fill="transparent"></rect>
+            ${pieces}
+          </svg>
+        `;
+      };
+
+      const mockResponse = () => {
+        const scenarios = {
+          partial: { placed: 5, unplaced: 5 },
+          all: { placed: 0, unplaced: 3 },
+          complete: { placed: 3, unplaced: 0 },
+        };
+        const scenario = scenarios[scenarioSelect.value];
+        const svg = packedSvg(scenario.placed);
+        const output = {
+          outputs: [{ sheet_index: 0, svg }],
+          svg,
+          placed: scenario.placed,
+          unplaced: scenario.unplaced,
+        };
+
+        return { status: "COMPLETED", output };
+      };
+
+      window.fetch = (resource, options) => {
+        const requestUrl = new URL(
+          typeof resource === "string" ? resource : resource.url,
+          window.location.href,
+        );
+
+        if (requestUrl.pathname !== "/__mock_incomplete_pack") {
+          return nativeFetch(resource, options);
+        }
+
+        return Promise.resolve(
+          new Response(JSON.stringify(mockResponse()), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      };
+
+      board.addEventListener("pack-incomplete", (event) => {
+        eventLog.textContent =
+          `pack-incomplete event: placed=${event.detail.placed}, ` +
+          `unplaced=${event.detail.unplaced}`;
+      });
+
+      scenarioSelect.addEventListener("change", () => {
+        eventLog.textContent = "";
+      });
+    </script>
+  </body>
+</html>

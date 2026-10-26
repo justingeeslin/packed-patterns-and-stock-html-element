@@ -705,9 +705,14 @@ export class UploadablePalette extends HTMLElement {
         const svgResult = this._normalizeSvgResult(
           await this._getSvgTextForFile(file),
         );
-        this.addSvgControl(svgResult.svgText, file.name, {
-          debugImages: svgResult.debugImages,
-        });
+        for (const [index, svgText] of svgResult.svgTexts.entries()) {
+          this.addSvgControl(svgText, file.name, {
+            debugImages: svgResult.debugImages,
+            label: svgResult.svgTexts.length > 1
+              ? `${this._humanizeName(this._basename(file.name))} ${index + 1}`
+              : undefined,
+          });
+        }
       } catch (error) {
         failures.push({ file, error });
       }
@@ -742,7 +747,7 @@ export class UploadablePalette extends HTMLElement {
     this._logSvgDescriptionDetails(uploadedSvg, fileName);
 
     const baseName = this._basename(fileName);
-    const label = this._humanizeName(baseName);
+    const label = options.label || this._humanizeName(baseName);
     const pieceKind = this._uniquePieceKind(baseName);
     const controlId = `${pieceKind}-control`;
 
@@ -911,6 +916,7 @@ export class UploadablePalette extends HTMLElement {
     const url = new URL(this.opencvEndpoint, document.baseURI);
     url.pathname = `${url.pathname.replace(/\/$/, "")}/dxf-to-svg/`;
     url.searchParams.set("scale", String(this.dxfConversionScale));
+    url.searchParams.set("separate_shapes", "true");
     url.hash = "";
 
     return url.href;
@@ -1235,18 +1241,29 @@ export class UploadablePalette extends HTMLElement {
   }
 
   _validateOpenCvSvgResult(svgResult) {
-    if (typeof svgResult.svgText !== "string" || svgResult.svgText.trim() === "") {
+    const { svgTexts, debugImages } = this._normalizeSvgResult(svgResult);
+
+    if (svgTexts.length === 0) {
       throw this._errorWithDebugImages(
         "OpenCV response did not include an SVG.",
-        svgResult.debugImages,
+        debugImages,
       );
     }
 
-    if (!this._hasValidSvgRoot(svgResult.svgText)) {
-      throw this._errorWithDebugImages(
-        "OpenCV response did not include a valid SVG.",
-        svgResult.debugImages,
-      );
+    for (const svgText of svgTexts) {
+      if (typeof svgText !== "string" || svgText.trim() === "") {
+        throw this._errorWithDebugImages(
+          "OpenCV response did not include an SVG.",
+          debugImages,
+        );
+      }
+
+      if (!this._hasValidSvgRoot(svgText)) {
+        throw this._errorWithDebugImages(
+          "OpenCV response did not include a valid SVG.",
+          debugImages,
+        );
+      }
     }
 
     return svgResult;
@@ -1259,23 +1276,30 @@ export class UploadablePalette extends HTMLElement {
   _opencvResultFromResponseBody(text) {
     try {
       const result = JSON.parse(text);
+      const svgTexts = this._svgTextsFromJson(result);
 
       return {
-        svgText: this._svgTextFromJson(result),
+        svgText: svgTexts[0] || "",
+        svgTexts,
         debugImages: this._debugImagesFromResponse(result),
       };
     } catch {
       return {
         svgText: text,
+        svgTexts: [text],
         debugImages: [],
       };
     }
   }
 
-  _svgTextFromJson(result) {
+  _svgTextsFromJson(result) {
+    if (result?.svgs !== undefined) {
+      return Array.isArray(result.svgs) ? result.svgs : [];
+    }
+
     const svgText = Array.isArray(result?.svg) ? result.svg[0] : result?.svg;
 
-    return typeof svgText === "string" ? svgText : "";
+    return typeof svgText === "string" ? [svgText] : [];
   }
 
   _debugImagesFromResponse(result) {
@@ -1318,13 +1342,15 @@ export class UploadablePalette extends HTMLElement {
   _normalizeSvgResult(result) {
     if (typeof result === "string") {
       return {
-        svgText: result,
+        svgTexts: [result],
         debugImages: [],
       };
     }
 
     return {
-      svgText: result?.svgText || "",
+      svgTexts: Array.isArray(result?.svgTexts)
+        ? result.svgTexts
+        : [result?.svgText || ""],
       debugImages: this._normalizeDebugImages(result?.debugImages),
     };
   }

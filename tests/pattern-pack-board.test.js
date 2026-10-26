@@ -666,7 +666,7 @@ describe("PatternPackBoard", () => {
 	);
   });
 
-  test("keeps packed endpoint output draggable, grid-backed, and quantity-controlled", async () => {
+  test("keeps packed stock fixed and pattern pieces draggable, grid-backed, and quantity-controlled", async () => {
 	const { board, control } = createPackedInteractionFixture();
 	const originalSvg = board.querySelector("svg");
 
@@ -730,9 +730,7 @@ describe("PatternPackBoard", () => {
 	expect(liveSvg.querySelector("#owned-piece-a")).toBeNull();
 	expect(packedStock).not.toBeNull();
 	expect(liveSvg.querySelector("#packed-stock-b")).not.toBeNull();
-	expect(board._getDraggableTarget(packedStock.querySelector("polygon"))).toBe(
-	  packedStock,
-	);
+	expect(board._getDraggableTarget(packedStock.querySelector("polygon"))).toBeNull();
 	expect(packedParts).toHaveLength(2);
 	expect(packedParts.map((piece) => piece.id)).toEqual([
 	  "packed-part-a",

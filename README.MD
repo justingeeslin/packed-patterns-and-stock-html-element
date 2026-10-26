@@ -17,6 +17,10 @@ const board = document.querySelector("pattern-pack-board");
 board.endpoint = "/api/pack/v2";
 ```
 
+Stock marked with `role="stock"` stays fixed on the board, including when added
+later or returned by packing. Pattern pieces with `data-draggable="true"` remain
+draggable.
+
 The board omits its built-in controls by default, so a host application can
 provide its own UI. Add `controls` to show the Pack button:
 

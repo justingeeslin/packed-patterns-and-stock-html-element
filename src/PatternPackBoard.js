@@ -505,6 +505,15 @@ export class PatternPackBoard extends DraggableSvgBoard {
 	return this.shadowRoot.querySelector(".status");
   }
 
+  _getDraggableTarget(node) {
+	if (node?.closest?.('[role="stock"]')) return null;
+
+	const target = super._getDraggableTarget(node);
+
+	// Moving a wrapper around stock would also move the stock itself.
+	return target?.querySelector('[role="stock"]') ? null : target;
+  }
+
   getPayload() {
 	const garmentNodes = this._roleNodes("garment");
 	const stockNodes = this._roleNodes("stock");

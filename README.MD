@@ -53,6 +53,12 @@ minor grid lines default to quarter-inch subdivisions:
 </pattern-pack-board>
 ```
 
+Packing requests default to a one-inch stock inset: `stock_inset: 25.4` at
+the default `board-pixels-per-mm="1"`. The default scales with
+`board-pixels-per-mm`. Override it in board units using the `stock-inset`
+attribute or `stock_inset` in the `pack-options` JSON attribute; `stock-inset`
+takes precedence. Set `stock-inset="0"` to disable the inset.
+
 The rulers automatically update when the board grows or any of these grid
 attributes change. The ruler markup and default light/dark styles are built
 into `PatternPackBoard`; consumers do not need to load a ruler stylesheet.

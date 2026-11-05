@@ -456,7 +456,8 @@ describe("PatternPackBoard", () => {
 		offset: 0,
 		parts_svg: expect.any(String),
 		persist: false,
-		rotations: 1,
+		rotations: 2,
+		stock_inset: 25.4,
 		stock_svg: expect.any(String),
 		tolerance: 0.03,
 	  }),
@@ -502,6 +503,43 @@ describe("PatternPackBoard", () => {
 
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 	expect(board.querySelector("#event-packed")).not.toBeNull();
+  });
+
+  test("scales the default one-inch stock inset with board units at request time", () => {
+    const { board } = createFixture();
+
+    expect(board.getPayload().input.stock_inset).toBe(25.4);
+
+    board.boardPixelsPerMm = 3;
+
+    expect(board.getPayload().input.stock_inset).toBeCloseTo(76.2);
+  });
+
+  test("uses the default one-inch stock inset for multiple stock SVGs", () => {
+    const { board } = createFixture();
+    const stock = board.querySelector('[role="stock"]');
+    const secondStock = stock.cloneNode(true);
+    secondStock.id = "second-stock";
+    stock.parentNode.appendChild(secondStock);
+
+    const payload = board.getPayload();
+
+    expect(payload.input.stock_svgs).toHaveLength(2);
+    expect(payload.input.stock_inset).toBe(25.4);
+  });
+
+  test.each([
+    ['stock-inset="0"', 0],
+    ['stock-inset="12.7"', 12.7],
+    ['pack-options=\'{"stock_inset":0}\'', 0],
+    ['pack-options=\'{"stock_inset":6.35}\'', 6.35],
+    ['pack-options=\'{"stock_inset":6.35}\' stock-inset="0"', 0],
+  ])("honors explicit inset overrides in board units: %s", (attributes, inset) => {
+    const { board } = createFixture({
+      attributes: ` board-pixels-per-mm="3" ${attributes}`,
+    });
+
+    expect(board.getPayload().input.stock_inset).toBe(inset);
   });
 
   test("posts multiple stock SVGs as stock_svgs", () => {

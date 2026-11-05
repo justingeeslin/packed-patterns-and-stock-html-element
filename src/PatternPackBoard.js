@@ -1484,7 +1484,10 @@ export class PatternPackBoard extends DraggableSvgBoard {
   }
 
   _packOptions() {
-	const options = { ...DEFAULT_PACK_OPTIONS };
+	const options = {
+	  ...DEFAULT_PACK_OPTIONS,
+	  stock_inset: MM_PER_INCH * this.boardPixelsPerMm,
+	};
 	const packOptions = this.getAttribute("pack-options");
 
 	if (packOptions) {
